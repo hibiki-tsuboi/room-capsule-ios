@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Xcode ユーザー個別ファイル(UI状態・ブレークポイント・スキーム管理など)
+xcuserdata/
+*.xcuserstate
+
+# ビルド成果物
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Claude Code のローカル設定
+.claude/settings.local.json
