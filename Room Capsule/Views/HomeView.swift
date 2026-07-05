@@ -10,9 +10,10 @@ struct HomeView: View {
     /// 起動引数 -autoPreview / -autoSplat での動作確認用(シミュレータ検証向け)
     @State private var showDebugPreview = false
     @State private var debugSplatAsset: SplatAsset?
+    @State private var navigationPath = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ZStack {
                 CapsuleBackground()
 
@@ -79,6 +80,10 @@ struct HomeView: View {
         .onAppear {
             if ProcessInfo.processInfo.arguments.contains("-autoPreview") {
                 showDebugPreview = true
+            }
+            if ProcessInfo.processInfo.arguments.contains("-autoDetail"),
+               let first = store.capsules.first {
+                navigationPath.append(first.id)
             }
             if ProcessInfo.processInfo.arguments.contains("-autoSplat") {
                 let capsule = store.capsules.first ?? store.addDemoCapsule()

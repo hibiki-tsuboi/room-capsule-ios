@@ -63,6 +63,9 @@ struct RoomDetailView: View {
                         previewCard(capsule)
                         versionRow(capsule)
                         statsRow(capsule)
+                        if let version = selectedVersion {
+                            measurementCard(version)
+                        }
                         modeGrid(capsule)
                         Spacer(minLength: 40)
                     }
@@ -78,6 +81,14 @@ struct RoomDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    if let usdzURL = selectedVersion?.usdzURL {
+                        Section {
+                            // 受け取った人は AR Quick Look(iOS 標準)でそのまま AR 表示できる
+                            ShareLink(item: usdzURL) {
+                                Label("USDZ を共有(AR Quick Look)", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                    }
                     Button {
                         renameText = capsule?.name ?? ""
                         showRename = true
@@ -256,6 +267,60 @@ struct RoomDetailView: View {
             Spacer()
         }
         .padding(.horizontal, 4)
+    }
+
+    // MARK: 採寸サマリー
+
+    /// 床面積・天井高・壁の総延長のカード(簡易ジオメトリからの概算)
+    @ViewBuilder
+    private func measurementCard(_ version: RoomScanVersion) -> some View {
+        let geometry = version.simplifiedGeometry
+        if !geometry.isEmpty, let area = geometry.approximateFloorArea {
+            HStack(spacing: 0) {
+                measurementItem(
+                    title: "床面積",
+                    value: String(format: "%.1f ㎡", area),
+                    detail: String(format: "約 %.1f 畳", area / 1.62)
+                )
+                measurementDivider
+                measurementItem(
+                    title: "天井高",
+                    value: String(format: "%.2f m", geometry.wallHeight),
+                    detail: "壁の最大高さ"
+                )
+                measurementDivider
+                measurementItem(
+                    title: "壁の総延長",
+                    value: String(format: "%.1f m", geometry.totalWallLength),
+                    detail: "\(geometry.walls.count) 面"
+                )
+            }
+            .padding(.vertical, 12)
+            .glassCard(cornerRadius: 18)
+        }
+    }
+
+    private var measurementDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.12))
+            .frame(width: 1)
+            .padding(.vertical, 4)
+    }
+
+    private func measurementItem(title: String, value: String, detail: String) -> some View {
+        VStack(spacing: 3) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(Color.white.opacity(0.5))
+            Text(value)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.white)
+                .monospacedDigit()
+            Text(detail)
+                .font(.caption2)
+                .foregroundStyle(Color.white.opacity(0.45))
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: モードグリッド

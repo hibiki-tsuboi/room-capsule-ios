@@ -407,4 +407,19 @@ extension SimplifiedRoomGeometry {
         let extent = bounds.max - bounds.min
         return [max(extent.x, 0.5), wallHeight, max(extent.y, 0.5)]
     }
+
+    /// おおよその床面積(㎡)。床パーツがあればその矩形、なければ外接矩形から
+    var approximateFloorArea: Float? {
+        if let floor {
+            return floor.size.x * floor.size.z
+        }
+        guard let bounds = horizontalBounds else { return nil }
+        let extent = bounds.max - bounds.min
+        return extent.x * extent.y
+    }
+
+    /// 壁の総延長(m)
+    var totalWallLength: Float {
+        walls.map(\.size.x).reduce(0, +)
+    }
 }

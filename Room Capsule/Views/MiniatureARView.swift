@@ -18,6 +18,9 @@ struct MiniatureARView: View {
     @State private var placed = false
     @State private var resetToken = 0
     @State private var showPreviewFallback = false
+    @State private var snapshotToken = 0
+    @State private var capturedPhoto: CapturedPhoto?
+    @State private var shutterFlash = false
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var version: RoomScanVersion? {
@@ -44,13 +47,23 @@ struct MiniatureARView: View {
                     mode: mode,
                     usdzURL: version.usdzURL,
                     resetToken: resetToken,
+                    snapshotToken: snapshotToken,
                     onSelectPart: { selectedPart = $0 },
                     onPlacementChange: { placed = $0 },
                     onGhostMoved: { ghostID, position in
                         moveGhost(ghostID: ghostID, to: position)
+                    },
+                    onSnapshot: { image in
+                        capturedPhoto = CapturedPhoto(image: image)
                     }
                 )
                 .ignoresSafeArea()
+
+                // シャッターのフラッシュ演出
+                Color.white
+                    .ignoresSafeArea()
+                    .opacity(shutterFlash ? 0.7 : 0)
+                    .allowsHitTesting(false)
 
                 VStack {
                     HStack(alignment: .top) {
@@ -77,6 +90,15 @@ struct MiniatureARView: View {
                                         .foregroundStyle(.white)
                                         .padding(12)
                                         .background(.ultraThinMaterial, in: Circle())
+                                }
+                                Button {
+                                    takeSnapshot()
+                                } label: {
+                                    Image(systemName: "camera.fill")
+                                        .font(.headline)
+                                        .foregroundStyle(.black)
+                                        .padding(12)
+                                        .background(Theme.accentGradient, in: Circle())
                                 }
                             }
                         }
@@ -106,6 +128,22 @@ struct MiniatureARView: View {
         }
         .fullScreenCover(isPresented: $showPreviewFallback) {
             RoomImmersivePreviewView(capsuleID: capsuleID, versionID: versionID, title: "ミニチュア(3Dプレビュー)")
+        }
+        .sheet(item: $capturedPhoto) { photo in
+            MiniatureSnapshotSheet(image: photo.image)
+        }
+    }
+
+    /// フラッシュ演出 → ARView のスナップショットを撮る
+    private func takeSnapshot() {
+        Haptics.medium()
+        shutterFlash = true
+        snapshotToken += 1
+        Task {
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            withAnimation(.easeOut(duration: 0.35)) {
+                shutterFlash = false
+            }
         }
     }
 
@@ -137,9 +175,11 @@ struct MiniatureARContainer: UIViewRepresentable {
     var mode: RoomDisplayMode
     var usdzURL: URL? = nil
     var resetToken: Int
+    var snapshotToken: Int = 0
     var onSelectPart: (RoomPartInfo?) -> Void
     var onPlacementChange: (Bool) -> Void
     var onGhostMoved: (UUID, SIMD3<Float>) -> Void = { _, _ in }
+    var onSnapshot: (UIImage) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -154,6 +194,7 @@ struct MiniatureARContainer: UIViewRepresentable {
     func updateUIView(_ uiView: ARView, context: Context) {
         context.coordinator.parent = self
         context.coordinator.handleResetTokenIfNeeded()
+        context.coordinator.handleSnapshotTokenIfNeeded()
         context.coordinator.refreshContentIfNeeded()
     }
 
@@ -169,11 +210,26 @@ struct MiniatureARContainer: UIViewRepresentable {
         private var contentSignature: Int?
         private var currentScale: Float = 0.12
         private var lastResetToken = 0
+        private var lastSnapshotToken = 0
         private var draggingGhost: (entity: ModelEntity, ghostID: UUID)?
 
         init(_ parent: MiniatureARContainer) {
             self.parent = parent
             self.lastResetToken = parent.resetToken
+            self.lastSnapshotToken = parent.snapshotToken
+        }
+
+        /// ARView の現在のフレームを画像として書き出す
+        func handleSnapshotTokenIfNeeded() {
+            guard parent.snapshotToken != lastSnapshotToken else { return }
+            lastSnapshotToken = parent.snapshotToken
+            guard let arView else { return }
+            arView.snapshot(saveToHDR: false) { [weak self] image in
+                guard let image else { return }
+                Task { @MainActor [weak self] in
+                    self?.parent.onSnapshot(image)
+                }
+            }
         }
 
         func attach(to arView: ARView) {
@@ -342,5 +398,54 @@ struct MiniatureARContainer: UIViewRepresentable {
                 break
             }
         }
+    }
+}
+
+// MARK: - 撮影結果
+
+/// UIImage はそのままでは Identifiable ではないためシート表示用に包む
+struct CapturedPhoto: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+/// 撮影したミニチュアのプレビュー + 共有シート
+struct MiniatureSnapshotSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let image: UIImage
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("ミニチュアを撮影しました")
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+                .frame(maxHeight: 420)
+
+            ShareLink(
+                item: Image(uiImage: image),
+                preview: SharePreview("Room Capsule のミニチュア", image: Image(uiImage: image))
+            ) {
+                Label("共有・保存", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PrimaryButtonStyle())
+
+            Button("閉じる") { dismiss() }
+                .buttonStyle(SecondaryButtonStyle())
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.backgroundTop.ignoresSafeArea())
+        .presentationDetents([.medium, .large])
+        .preferredColorScheme(.dark)
     }
 }
