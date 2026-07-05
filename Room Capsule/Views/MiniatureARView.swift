@@ -53,6 +53,9 @@ struct MiniatureARView: View {
                     onGhostMoved: { ghostID, position in
                         moveGhost(ghostID: ghostID, to: position)
                     },
+                    onGhostRotated: { ghostID, yaw in
+                        rotateGhost(ghostID: ghostID, to: yaw)
+                    },
                     onSnapshot: { image in
                         capturedPhoto = CapturedPhoto(image: image)
                     }
@@ -154,6 +157,13 @@ struct MiniatureARView: View {
         store.upsertGhost(ghost, in: capsuleID)
     }
 
+    private func rotateGhost(ghostID: UUID, to yaw: Float) {
+        guard let capsule,
+              var ghost = capsule.furnitureGhosts.first(where: { $0.id == ghostID }) else { return }
+        ghost.rotationY = yaw
+        store.upsertGhost(ghost, in: capsuleID)
+    }
+
     private var closeOverlay: some View {
         VStack {
             HStack {
@@ -179,6 +189,7 @@ struct MiniatureARContainer: UIViewRepresentable {
     var onSelectPart: (RoomPartInfo?) -> Void
     var onPlacementChange: (Bool) -> Void
     var onGhostMoved: (UUID, SIMD3<Float>) -> Void = { _, _ in }
+    var onGhostRotated: (UUID, Float) -> Void = { _, _ in }
     var onSnapshot: (UIImage) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
@@ -212,6 +223,7 @@ struct MiniatureARContainer: UIViewRepresentable {
         private var lastResetToken = 0
         private var lastSnapshotToken = 0
         private var draggingGhost: (entity: ModelEntity, ghostID: UUID)?
+        private var rotatingGhost: (entity: ModelEntity, ghostID: UUID)?
 
         init(_ parent: MiniatureARContainer) {
             self.parent = parent
@@ -359,11 +371,32 @@ struct MiniatureARContainer: UIViewRepresentable {
             container.scale = SIMD3<Float>(repeating: currentScale)
         }
 
+        /// ゴーストの上から始めた回転はゴーストを、それ以外はミニチュア全体を回す
         @objc private func handleRotation(_ recognizer: UIRotationGestureRecognizer) {
-            guard let container else { return }
-            let rotation = Float(recognizer.rotation)
-            recognizer.rotation = 0
-            container.orientation = simd_quatf(angle: -rotation, axis: [0, 1, 0]) * container.orientation
+            guard let arView, let container else { return }
+            switch recognizer.state {
+            case .began:
+                if let hit = GhostDragHelper.ghostEntity(at: recognizer.location(in: arView), in: arView) {
+                    rotatingGhost = hit
+                    Haptics.light()
+                }
+            case .changed:
+                let rotation = Float(recognizer.rotation)
+                recognizer.rotation = 0
+                if let rotating = rotatingGhost {
+                    rotating.entity.orientation = simd_quatf(angle: -rotation, axis: [0, 1, 0]) * rotating.entity.orientation
+                } else {
+                    container.orientation = simd_quatf(angle: -rotation, axis: [0, 1, 0]) * container.orientation
+                }
+            case .ended, .cancelled, .failed:
+                if let rotating = rotatingGhost {
+                    parent.onGhostRotated(rotating.ghostID, GhostDragHelper.yaw(of: rotating.entity))
+                    Haptics.success()
+                }
+                rotatingGhost = nil
+            default:
+                break
+            }
         }
 
         @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {

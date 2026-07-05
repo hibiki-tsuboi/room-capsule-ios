@@ -20,6 +20,8 @@ struct FullScaleARView: View {
     @State private var miniature = false
     @State private var resetToken = 0
     @State private var showPreviewFallback = false
+    @State private var pinPlacementActive = false
+    @State private var pendingPin: PendingPinPlacement?
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var version: RoomScanVersion? {
@@ -48,19 +50,25 @@ struct FullScaleARView: View {
                     opacity: opacity,
                     miniature: miniature,
                     resetToken: resetToken,
+                    pinPlacementActive: pinPlacementActive,
+                    onPlacePin: { position in
+                        pendingPin = PendingPinPlacement(position: position)
+                        pinPlacementActive = false
+                    },
                     onSelectPart: { selectedPart = $0 },
                     onPlacementChange: { placed = $0 },
                     onGhostMoved: { ghostID, position in
                         moveGhost(ghostID: ghostID, to: position)
+                    },
+                    onGhostRotated: { ghostID, yaw in
+                        rotateGhost(ghostID: ghostID, to: yaw)
                     }
                 )
                 .ignoresSafeArea()
 
                 VStack {
                     HStack(alignment: .top) {
-                        Text(placed
-                             ? "スライダーで透明度調整・ゴーストは掴んで移動"
-                             : "床をタップして部屋の原点を設置")
+                        Text(hintText)
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
@@ -72,6 +80,21 @@ struct FullScaleARView: View {
                         VStack(spacing: 10) {
                             CloseButton { dismiss() }
                             if placed {
+                                Button {
+                                    pinPlacementActive.toggle()
+                                    Haptics.light()
+                                } label: {
+                                    Image(systemName: pinPlacementActive ? "mappin.circle.fill" : "mappin.circle")
+                                        .font(.headline)
+                                        .foregroundStyle(pinPlacementActive ? Color.black : Color.white)
+                                        .padding(12)
+                                        .background(
+                                            pinPlacementActive
+                                                ? AnyShapeStyle(Theme.accentGradient)
+                                                : AnyShapeStyle(.ultraThinMaterial),
+                                            in: Circle()
+                                        )
+                                }
                                 Button {
                                     resetToken += 1
                                     placed = false
@@ -139,12 +162,36 @@ struct FullScaleARView: View {
                 title: "実寸(3Dプレビュー)"
             )
         }
+        .sheet(item: $pendingPin) { pending in
+            MemoPinEditorView(
+                capsuleID: capsuleID,
+                versionID: version?.id,
+                initialPosition: pending.position
+            )
+        }
+    }
+
+    private var hintText: String {
+        if !placed {
+            return "床をタップして部屋の原点を設置"
+        }
+        if pinPlacementActive {
+            return "壁や家具をタップしてメモピンを置く"
+        }
+        return "スライダーで透明度調整・ゴーストは掴んで移動"
     }
 
     private func moveGhost(ghostID: UUID, to position: SIMD3<Float>) {
         guard let capsule,
               var ghost = capsule.furnitureGhosts.first(where: { $0.id == ghostID }) else { return }
         ghost.position = position
+        store.upsertGhost(ghost, in: capsuleID)
+    }
+
+    private func rotateGhost(ghostID: UUID, to yaw: Float) {
+        guard let capsule,
+              var ghost = capsule.furnitureGhosts.first(where: { $0.id == ghostID }) else { return }
+        ghost.rotationY = yaw
         store.upsertGhost(ghost, in: capsuleID)
     }
 
@@ -180,9 +227,12 @@ struct FullScaleARContainer: UIViewRepresentable {
     var opacity: Float
     var miniature: Bool
     var resetToken: Int
+    var pinPlacementActive: Bool = false
+    var onPlacePin: (SIMD3<Float>) -> Void = { _ in }
     var onSelectPart: (RoomPartInfo?) -> Void
     var onPlacementChange: (Bool) -> Void
     var onGhostMoved: (UUID, SIMD3<Float>) -> Void = { _, _ in }
+    var onGhostRotated: (UUID, Float) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -215,6 +265,7 @@ struct FullScaleARContainer: UIViewRepresentable {
         private var lastMiniature = false
         private var lastResetToken = 0
         private var draggingGhost: (entity: ModelEntity, ghostID: UUID)?
+        private var rotatingGhost: (entity: ModelEntity, ghostID: UUID)?
 
         init(_ parent: FullScaleARContainer) {
             self.parent = parent
@@ -341,6 +392,15 @@ struct FullScaleARContainer: UIViewRepresentable {
                 place(at: point)
                 return
             }
+            if parent.pinPlacementActive {
+                if let hit = arView.hitTest(point).first,
+                   let content = roomEntity?.findEntity(named: "RoomContent") {
+                    let localPosition = content.convert(position: hit.position, from: nil)
+                    parent.onPlacePin(localPosition)
+                    Haptics.success()
+                }
+                return
+            }
             let info = selection.handleTap(at: point, in: arView)
             parent.onSelectPart(info)
         }
@@ -365,11 +425,32 @@ struct FullScaleARContainer: UIViewRepresentable {
             Haptics.success()
         }
 
+        /// ゴーストの上から始めた回転はゴーストを、それ以外は部屋全体を回す
         @objc private func handleRotation(_ recognizer: UIRotationGestureRecognizer) {
-            guard let container else { return }
-            let rotation = Float(recognizer.rotation)
-            recognizer.rotation = 0
-            container.orientation = simd_quatf(angle: -rotation, axis: [0, 1, 0]) * container.orientation
+            guard let arView, let container else { return }
+            switch recognizer.state {
+            case .began:
+                if let hit = GhostDragHelper.ghostEntity(at: recognizer.location(in: arView), in: arView) {
+                    rotatingGhost = hit
+                    Haptics.light()
+                }
+            case .changed:
+                let rotation = Float(recognizer.rotation)
+                recognizer.rotation = 0
+                if let rotating = rotatingGhost {
+                    rotating.entity.orientation = simd_quatf(angle: -rotation, axis: [0, 1, 0]) * rotating.entity.orientation
+                } else {
+                    container.orientation = simd_quatf(angle: -rotation, axis: [0, 1, 0]) * container.orientation
+                }
+            case .ended, .cancelled, .failed:
+                if let rotating = rotatingGhost {
+                    parent.onGhostRotated(rotating.ghostID, GhostDragHelper.yaw(of: rotating.entity))
+                    Haptics.success()
+                }
+                rotatingGhost = nil
+            default:
+                break
+            }
         }
     }
 }

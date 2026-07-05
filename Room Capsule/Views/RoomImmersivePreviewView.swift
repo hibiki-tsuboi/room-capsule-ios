@@ -64,6 +64,9 @@ struct RoomImmersivePreviewView: View {
                     },
                     onGhostMoved: { ghostID, position in
                         moveGhost(ghostID: ghostID, to: position)
+                    },
+                    onGhostRotated: { ghostID, yaw in
+                        rotateGhost(ghostID: ghostID, to: yaw)
                     }
                 )
                 .ignoresSafeArea()
@@ -190,6 +193,13 @@ struct RoomImmersivePreviewView: View {
         ghost.position = position
         store.upsertGhost(ghost, in: capsuleID)
     }
+
+    private func rotateGhost(ghostID: UUID, to yaw: Float) {
+        guard let capsule,
+              var ghost = capsule.furnitureGhosts.first(where: { $0.id == ghostID }) else { return }
+        ghost.rotationY = yaw
+        store.upsertGhost(ghost, in: capsuleID)
+    }
 }
 
 /// SIMD3 は Identifiable ではないのでシート表示用に包む
@@ -211,6 +221,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
     var onSelectPart: (RoomPartInfo?) -> Void
     var onPlacePin: (SIMD3<Float>) -> Void
     var onGhostMoved: (UUID, SIMD3<Float>) -> Void = { _, _ in }
+    var onGhostRotated: (UUID, Float) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -245,6 +256,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
         private var baseRadius: Float = 5
         private var insideEye: SIMD3<Float> = [0, 1.4, 0]
         private var draggingGhost: (entity: ModelEntity, ghostID: UUID)?
+        private var rotatingGhost: (entity: ModelEntity, ghostID: UUID)?
         private var dollyTimer: Timer?
 
         init(_ parent: RoomPreviewARContainer) {
@@ -282,6 +294,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
             arView.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:))))
             arView.addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:))))
             arView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap(_:))))
+            arView.addGestureRecognizer(UIRotationGestureRecognizer(target: self, action: #selector(handleRotation(_:))))
 
             setupCameraDefaults()
             refreshContentIfNeeded(force: true)
@@ -401,6 +414,32 @@ struct RoomPreviewARContainer: UIViewRepresentable {
                         timer.invalidate()
                     }
                 }
+            }
+        }
+
+        /// プレビューではゴーストの上から始めた回転だけを扱う(部屋はドラッグで回すため)
+        @objc private func handleRotation(_ recognizer: UIRotationGestureRecognizer) {
+            guard let arView else { return }
+            switch recognizer.state {
+            case .began:
+                if let hit = GhostDragHelper.ghostEntity(at: recognizer.location(in: arView), in: arView) {
+                    rotatingGhost = hit
+                    Haptics.light()
+                }
+            case .changed:
+                let rotation = Float(recognizer.rotation)
+                recognizer.rotation = 0
+                if let rotating = rotatingGhost {
+                    rotating.entity.orientation = simd_quatf(angle: -rotation, axis: [0, 1, 0]) * rotating.entity.orientation
+                }
+            case .ended, .cancelled, .failed:
+                if let rotating = rotatingGhost {
+                    parent.onGhostRotated(rotating.ghostID, GhostDragHelper.yaw(of: rotating.entity))
+                    Haptics.success()
+                }
+                rotatingGhost = nil
+            default:
+                break
             }
         }
 

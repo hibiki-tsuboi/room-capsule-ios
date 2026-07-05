@@ -61,6 +61,12 @@ enum GhostDragHelper {
         return nil
     }
 
+    /// Y 軸回転のみのエンティティからヨー角を取り出す(ゴーストの回転保存用)
+    static func yaw(of entity: Entity) -> Float {
+        let q = entity.orientation
+        return 2 * atan2(q.imag.y, q.real)
+    }
+
     /// ドラッグ先のルーム座標を計算してゴーストを動かす(高さは維持、部屋の外へは出しすぎない)
     static func updateDragPosition(
         point: CGPoint,

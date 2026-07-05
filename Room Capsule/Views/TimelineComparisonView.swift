@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import RealityKit
 import UIKit
 import simd
@@ -14,6 +15,9 @@ struct TimelineComparisonView: View {
     @State private var beforeID: UUID?
     @State private var afterID: UUID?
     @State private var progress: Float = 0
+    @State private var isPlaying = false
+    @State private var playDirection: Float = 1
+    private let playTimer = Timer.publish(every: 1.0 / 30.0, on: .main, in: .common).autoconnect()
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var sortedVersions: [RoomScanVersion] {
@@ -90,8 +94,28 @@ struct TimelineComparisonView: View {
                                     .foregroundStyle(Color.white.opacity(0.45))
                             }
                         }
-                        Slider(value: $progress, in: 0...1)
+                        HStack(spacing: 12) {
+                            Button {
+                                isPlaying.toggle()
+                                Haptics.light()
+                            } label: {
+                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.headline)
+                                    .foregroundStyle(.black)
+                                    .padding(10)
+                                    .background(Theme.accentGradient, in: Circle())
+                            }
+                            Slider(
+                                value: $progress,
+                                in: 0...1,
+                                onEditingChanged: { editing in
+                                    if editing {
+                                        isPlaying = false
+                                    }
+                                }
+                            )
                             .tint(Theme.accentCyan)
+                        }
                     }
                     .padding(16)
                     .glassCard(cornerRadius: 18)
@@ -123,6 +147,19 @@ struct TimelineComparisonView: View {
                     Spacer()
                 }
             }
+        }
+        .onReceive(playTimer) { _ in
+            guard isPlaying else { return }
+            // 約 3 秒で片道、端で折り返すピンポン再生
+            var next = progress + playDirection / 90
+            if next >= 1 {
+                next = 1
+                playDirection = -1
+            } else if next <= 0 {
+                next = 0
+                playDirection = 1
+            }
+            progress = next
         }
     }
 
