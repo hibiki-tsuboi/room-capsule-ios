@@ -45,14 +45,17 @@ struct MiniatureARView: View {
                     usdzURL: version.usdzURL,
                     resetToken: resetToken,
                     onSelectPart: { selectedPart = $0 },
-                    onPlacementChange: { placed = $0 }
+                    onPlacementChange: { placed = $0 },
+                    onGhostMoved: { ghostID, position in
+                        moveGhost(ghostID: ghostID, to: position)
+                    }
                 )
                 .ignoresSafeArea()
 
                 VStack {
                     HStack(alignment: .top) {
                         Text(placed
-                             ? "ピンチで拡大縮小・2本指で回転・ドラッグで移動"
+                             ? "ピンチで拡大・2本指で回転・ゴーストは掴んで移動"
                              : "机や床にカメラを向けて、タップでミニチュアを設置")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.white)
@@ -106,6 +109,13 @@ struct MiniatureARView: View {
         }
     }
 
+    private func moveGhost(ghostID: UUID, to position: SIMD3<Float>) {
+        guard let capsule,
+              var ghost = capsule.furnitureGhosts.first(where: { $0.id == ghostID }) else { return }
+        ghost.position = position
+        store.upsertGhost(ghost, in: capsuleID)
+    }
+
     private var closeOverlay: some View {
         VStack {
             HStack {
@@ -129,6 +139,7 @@ struct MiniatureARContainer: UIViewRepresentable {
     var resetToken: Int
     var onSelectPart: (RoomPartInfo?) -> Void
     var onPlacementChange: (Bool) -> Void
+    var onGhostMoved: (UUID, SIMD3<Float>) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -158,6 +169,7 @@ struct MiniatureARContainer: UIViewRepresentable {
         private var contentSignature: Int?
         private var currentScale: Float = 0.12
         private var lastResetToken = 0
+        private var draggingGhost: (entity: ModelEntity, ghostID: UUID)?
 
         init(_ parent: MiniatureARContainer) {
             self.parent = parent
@@ -299,12 +311,36 @@ struct MiniatureARContainer: UIViewRepresentable {
         }
 
         @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
-            guard let arView, let container, recognizer.state == .changed else { return }
+            guard let arView, let container else { return }
             let point = recognizer.location(in: arView)
-            guard let result = arView.raycast(from: point, allowing: .estimatedPlane, alignment: .horizontal).first
-            else { return }
-            let t = result.worldTransform.columns.3
-            container.setPosition([t.x, t.y, t.z], relativeTo: nil)
+            switch recognizer.state {
+            case .began:
+                // ゴーストの上からドラッグを始めたら、部屋ではなくゴーストを動かす
+                if let hit = GhostDragHelper.ghostEntity(at: point, in: arView) {
+                    draggingGhost = hit
+                    hit.entity.scale *= 1.06
+                    Haptics.light()
+                }
+            case .changed:
+                if let dragging = draggingGhost {
+                    GhostDragHelper.updateDragPosition(
+                        point: point, arView: arView, dragging: dragging,
+                        roomEntity: roomEntity, geometry: parent.geometry
+                    )
+                } else if let result = arView.raycast(from: point, allowing: .estimatedPlane, alignment: .horizontal).first {
+                    let t = result.worldTransform.columns.3
+                    container.setPosition([t.x, t.y, t.z], relativeTo: nil)
+                }
+            case .ended, .cancelled, .failed:
+                if let dragging = draggingGhost {
+                    dragging.entity.scale /= 1.06
+                    parent.onGhostMoved(dragging.ghostID, dragging.entity.position)
+                    Haptics.success()
+                }
+                draggingGhost = nil
+            default:
+                break
+            }
         }
     }
 }

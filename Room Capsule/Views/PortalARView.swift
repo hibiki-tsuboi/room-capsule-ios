@@ -16,6 +16,8 @@ struct PortalARView: View {
     @State private var placed = false
     @State private var enterInside = false
     @State private var resetToken = 0
+    /// ドアをくぐるときの光のバースト演出
+    @State private var portalFlash = false
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var version: RoomScanVersion? {
@@ -41,7 +43,7 @@ struct PortalARView: View {
                     ghosts: capsule.ghosts(forVersion: version.id),
                     usdzURL: version.usdzURL,
                     resetToken: resetToken,
-                    onEnter: { enterInside = true },
+                    onEnter: { enterPortal() },
                     onPlacementChange: { placed = $0 }
                 )
                 .ignoresSafeArea()
@@ -84,6 +86,22 @@ struct PortalARView: View {
                 ContentUnavailableView("表示できるバージョンがありません", systemImage: "door.left.hand.open")
                 closeOverlay
             }
+
+            // ドアをくぐる瞬間の光のバースト
+            if portalFlash {
+                RadialGradient(
+                    colors: [Color.white, Theme.accentCyan.opacity(0.85), Color.clear],
+                    center: .center,
+                    startRadius: 20,
+                    endRadius: 700
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.25).combined(with: .opacity),
+                    removal: .opacity
+                ))
+            }
         }
         .fullScreenCover(isPresented: $enterInside) {
             RoomImmersivePreviewView(
@@ -93,6 +111,22 @@ struct PortalARView: View {
                 startsInside: true,
                 title: "部屋の中"
             )
+        }
+    }
+
+    /// 光のバースト → 部屋の中ビューへ(中ビュー側は白からフェードイン + ドリーイン)
+    private func enterPortal() {
+        withAnimation(.easeIn(duration: 0.28)) {
+            portalFlash = true
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            enterInside = true
+            // カバー表示後、戻ってきたとき用にバーストを片付けておく
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            withAnimation(.easeOut(duration: 0.4)) {
+                portalFlash = false
+            }
         }
     }
 

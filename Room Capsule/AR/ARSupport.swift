@@ -40,6 +40,83 @@ enum Haptics {
     }
 }
 
+// MARK: - 家具ゴーストのドラッグ移動
+
+/// AR / 3D プレビューでゴースト家具を指で掴んで動かすための共通処理
+@MainActor
+enum GhostDragHelper {
+
+    /// 指の位置の下にある家具ゴーストのエンティティを探す
+    static func ghostEntity(at point: CGPoint, in arView: ARView) -> (entity: ModelEntity, ghostID: UUID)? {
+        guard let tapped = arView.entity(at: point) else { return nil }
+        var target: Entity? = tapped
+        while let current = target {
+            if let part = current.components[RoomPartComponent.self],
+               case .furnitureGhost(let ghost) = part.info.kind,
+               let model = current as? ModelEntity {
+                return (model, ghost.id)
+            }
+            target = current.parent
+        }
+        return nil
+    }
+
+    /// ドラッグ先のルーム座標を計算してゴーストを動かす(高さは維持、部屋の外へは出しすぎない)
+    static func updateDragPosition(
+        point: CGPoint,
+        arView: ARView,
+        dragging: (entity: ModelEntity, ghostID: UUID),
+        roomEntity: Entity?,
+        geometry: SimplifiedRoomGeometry
+    ) {
+        guard let content = roomEntity?.findEntity(named: "RoomContent"),
+              let target = dragTarget(point: point, arView: arView, ghostEntity: dragging.entity, content: content)
+        else { return }
+        var x = target.x
+        var z = target.z
+        if let bounds = geometry.horizontalBounds {
+            x = min(max(x, bounds.min.x - 0.5), bounds.max.x + 0.5)
+            z = min(max(z, bounds.min.y - 0.5), bounds.max.y + 0.5)
+        }
+        dragging.entity.position = [x, dragging.entity.position.y, z]
+    }
+
+    /// 指のレイと「ゴーストの現在の高さの水平面」の交点をルーム座標で返す。
+    /// レイが取れない場合はコリジョン hitTest(自分自身は除外)へフォールバック。
+    private static func dragTarget(
+        point: CGPoint,
+        arView: ARView,
+        ghostEntity: Entity,
+        content: Entity
+    ) -> SIMD3<Float>? {
+        let ghostWorld = ghostEntity.convert(position: .zero, to: nil)
+        if let ray = arView.ray(through: point) {
+            let denom = ray.direction.y
+            if abs(denom) > 1e-4 {
+                let t = (ghostWorld.y - ray.origin.y) / denom
+                if t > 0 {
+                    return content.convert(position: ray.origin + ray.direction * t, from: nil)
+                }
+            }
+        }
+        for hit in arView.hitTest(point) {
+            var node: Entity? = hit.entity
+            var isDraggedGhost = false
+            while let current = node {
+                if current === ghostEntity {
+                    isDraggedGhost = true
+                    break
+                }
+                node = current.parent
+            }
+            if !isDraggedGhost {
+                return content.convert(position: hit.position, from: nil)
+            }
+        }
+        return nil
+    }
+}
+
 // MARK: - タップ選択
 
 /// タップ選択とハイライトの共通処理(全 AR / プレビュー画面で共用)

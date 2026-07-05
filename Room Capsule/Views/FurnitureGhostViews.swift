@@ -59,7 +59,7 @@ struct FurnitureGhostListView: View {
                                         }
                                     }
                                 }
-                                Text("ゴーストはミニチュア AR・実寸 AR・3D プレビューで淡く光って表示されます。")
+                                Text("ゴーストはミニチュア AR・実寸 AR・3D プレビューで淡く光って表示されます。画面の中でゴーストを指で掴んでドラッグすると移動でき、位置は自動保存されます。")
                                     .font(.caption)
                                     .foregroundStyle(Color.white.opacity(0.5))
                                     .padding(.top, 8)

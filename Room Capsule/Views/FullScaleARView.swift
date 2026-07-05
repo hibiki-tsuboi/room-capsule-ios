@@ -49,14 +49,17 @@ struct FullScaleARView: View {
                     miniature: miniature,
                     resetToken: resetToken,
                     onSelectPart: { selectedPart = $0 },
-                    onPlacementChange: { placed = $0 }
+                    onPlacementChange: { placed = $0 },
+                    onGhostMoved: { ghostID, position in
+                        moveGhost(ghostID: ghostID, to: position)
+                    }
                 )
                 .ignoresSafeArea()
 
                 VStack {
                     HStack(alignment: .top) {
                         Text(placed
-                             ? "透明度スライダーで現実と重ねて見比べる"
+                             ? "スライダーで透明度調整・ゴーストは掴んで移動"
                              : "床をタップして部屋の原点を設置")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.white)
@@ -138,6 +141,13 @@ struct FullScaleARView: View {
         }
     }
 
+    private func moveGhost(ghostID: UUID, to position: SIMD3<Float>) {
+        guard let capsule,
+              var ghost = capsule.furnitureGhosts.first(where: { $0.id == ghostID }) else { return }
+        ghost.position = position
+        store.upsertGhost(ghost, in: capsuleID)
+    }
+
     /// 実寸 AR で選べるモード(USDZ があれば高品質を先頭寄りに追加)
     private var fullScaleModes: [RoomDisplayMode] {
         var modes: [RoomDisplayMode] = [.model, .xray, .structureOnly, .furnitureOnly, .memo]
@@ -172,6 +182,7 @@ struct FullScaleARContainer: UIViewRepresentable {
     var resetToken: Int
     var onSelectPart: (RoomPartInfo?) -> Void
     var onPlacementChange: (Bool) -> Void
+    var onGhostMoved: (UUID, SIMD3<Float>) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -203,6 +214,7 @@ struct FullScaleARContainer: UIViewRepresentable {
         private var lastOpacity: Float = 1.0
         private var lastMiniature = false
         private var lastResetToken = 0
+        private var draggingGhost: (entity: ModelEntity, ghostID: UUID)?
 
         init(_ parent: FullScaleARContainer) {
             self.parent = parent
@@ -226,6 +238,39 @@ struct FullScaleARContainer: UIViewRepresentable {
 
             arView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap(_:))))
             arView.addGestureRecognizer(UIRotationGestureRecognizer(target: self, action: #selector(handleRotation(_:))))
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+            pan.maximumNumberOfTouches = 1
+            arView.addGestureRecognizer(pan)
+        }
+
+        /// 実寸 AR ではゴーストのドラッグ移動だけにパンを使う(部屋の原点は固定)
+        @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+            guard let arView else { return }
+            let point = recognizer.location(in: arView)
+            switch recognizer.state {
+            case .began:
+                if let hit = GhostDragHelper.ghostEntity(at: point, in: arView) {
+                    draggingGhost = hit
+                    hit.entity.scale *= 1.06
+                    Haptics.light()
+                }
+            case .changed:
+                if let dragging = draggingGhost {
+                    GhostDragHelper.updateDragPosition(
+                        point: point, arView: arView, dragging: dragging,
+                        roomEntity: roomEntity, geometry: parent.geometry
+                    )
+                }
+            case .ended, .cancelled, .failed:
+                if let dragging = draggingGhost {
+                    dragging.entity.scale /= 1.06
+                    parent.onGhostMoved(dragging.ghostID, dragging.entity.position)
+                    Haptics.success()
+                }
+                draggingGhost = nil
+            default:
+                break
+            }
         }
 
         func handleResetTokenIfNeeded() {

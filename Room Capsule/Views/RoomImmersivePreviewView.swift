@@ -20,6 +20,9 @@ struct RoomImmersivePreviewView: View {
     @State private var selectedPart: RoomPartInfo?
     @State private var pinPlacementActive = false
     @State private var pendingPin: PendingPinPlacement?
+    /// ポータル出入りのトランジション(白フェード)
+    @State private var introFlash: Bool
+    @State private var exitFlash = false
 
     init(
         capsuleID: UUID,
@@ -33,6 +36,7 @@ struct RoomImmersivePreviewView: View {
         self.startsInside = startsInside
         self.title = title
         _mode = State(initialValue: initialMode)
+        _introFlash = State(initialValue: startsInside)
     }
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
@@ -57,6 +61,9 @@ struct RoomImmersivePreviewView: View {
                     onPlacePin: { position in
                         pendingPin = PendingPinPlacement(position: position)
                         pinPlacementActive = false
+                    },
+                    onGhostMoved: { ghostID, position in
+                        moveGhost(ghostID: ghostID, to: position)
                     }
                 )
                 .ignoresSafeArea()
@@ -77,7 +84,7 @@ struct RoomImmersivePreviewView: View {
                         Spacer()
 
                         VStack(spacing: 10) {
-                            CloseButton { dismiss() }
+                            CloseButton { closeTapped() }
                             Button {
                                 pinPlacementActive.toggle()
                                 Haptics.light()
@@ -105,7 +112,7 @@ struct RoomImmersivePreviewView: View {
                             .padding(.vertical, 8)
                             .glassCard(cornerRadius: 12)
                     } else {
-                        Text(startsInside ? "ドラッグで見回す・ピンチで前後に移動" : "ドラッグで回転・ピンチで拡大縮小・パーツをタップ")
+                        Text(startsInside ? "ドラッグで見回す・ピンチで前後に移動" : "ドラッグで回転・タップで選択・ゴーストは掴んで移動")
                             .font(.caption)
                             .foregroundStyle(Color.white.opacity(0.55))
                             .padding(.horizontal, 12)
@@ -139,6 +146,19 @@ struct RoomImmersivePreviewView: View {
                     Spacer()
                 }
             }
+
+            // ポータル出入り用の白フェード
+            Color.white
+                .ignoresSafeArea()
+                .opacity(introFlash || exitFlash ? 1 : 0)
+                .allowsHitTesting(false)
+        }
+        .onAppear {
+            if startsInside {
+                withAnimation(.easeOut(duration: 0.9).delay(0.1)) {
+                    introFlash = false
+                }
+            }
         }
         .sheet(item: $pendingPin) { pending in
             MemoPinEditorView(
@@ -147,6 +167,28 @@ struct RoomImmersivePreviewView: View {
                 initialPosition: pending.position
             )
         }
+    }
+
+    /// ポータルから入った場合は白フェードしてから閉じる
+    private func closeTapped() {
+        guard startsInside else {
+            dismiss()
+            return
+        }
+        withAnimation(.easeIn(duration: 0.22)) {
+            exitFlash = true
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 240_000_000)
+            dismiss()
+        }
+    }
+
+    private func moveGhost(ghostID: UUID, to position: SIMD3<Float>) {
+        guard let capsule,
+              var ghost = capsule.furnitureGhosts.first(where: { $0.id == ghostID }) else { return }
+        ghost.position = position
+        store.upsertGhost(ghost, in: capsuleID)
     }
 }
 
@@ -168,6 +210,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
     var pinPlacementActive: Bool
     var onSelectPart: (RoomPartInfo?) -> Void
     var onPlacePin: (SIMD3<Float>) -> Void
+    var onGhostMoved: (UUID, SIMD3<Float>) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -201,6 +244,8 @@ struct RoomPreviewARContainer: UIViewRepresentable {
         private var radius: Float = 5
         private var baseRadius: Float = 5
         private var insideEye: SIMD3<Float> = [0, 1.4, 0]
+        private var draggingGhost: (entity: ModelEntity, ghostID: UUID)?
+        private var dollyTimer: Timer?
 
         init(_ parent: RoomPreviewARContainer) {
             self.parent = parent
@@ -241,6 +286,9 @@ struct RoomPreviewARContainer: UIViewRepresentable {
             setupCameraDefaults()
             refreshContentIfNeeded(force: true)
             updateCamera()
+            if parent.startsInside {
+                startDollyIn()
+            }
         }
 
         private func setupCameraDefaults() {
@@ -285,7 +333,39 @@ struct RoomPreviewARContainer: UIViewRepresentable {
         // MARK: ジェスチャ
 
         @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
-            guard let view = recognizer.view else { return }
+            guard let view = recognizer.view, let arView else { return }
+            let point = recognizer.location(in: view)
+
+            // ゴーストの上からドラッグを始めたら、カメラではなくゴーストを動かす
+            switch recognizer.state {
+            case .began:
+                if let hit = GhostDragHelper.ghostEntity(at: point, in: arView) {
+                    draggingGhost = hit
+                    hit.entity.scale *= 1.06
+                    Haptics.light()
+                }
+            case .changed:
+                if let dragging = draggingGhost {
+                    GhostDragHelper.updateDragPosition(
+                        point: point, arView: arView, dragging: dragging,
+                        roomEntity: roomEntity, geometry: parent.geometry
+                    )
+                    recognizer.setTranslation(.zero, in: view)
+                    return
+                }
+            case .ended, .cancelled, .failed:
+                if let dragging = draggingGhost {
+                    dragging.entity.scale /= 1.06
+                    parent.onGhostMoved(dragging.ghostID, dragging.entity.position)
+                    Haptics.success()
+                    draggingGhost = nil
+                    return
+                }
+            default:
+                break
+            }
+            if draggingGhost != nil { return }
+
             let translation = recognizer.translation(in: view)
             recognizer.setTranslation(.zero, in: view)
             yaw -= Float(translation.x) * 0.008
@@ -296,6 +376,32 @@ struct RoomPreviewARContainer: UIViewRepresentable {
                 pitch = min(max(pitch + pitchDelta, -0.15), 1.45)
             }
             updateCamera()
+        }
+
+        /// ポータルから入ったとき、ドアから部屋の中心へ歩き入るカメラ演出
+        private func startDollyIn() {
+            let size = parent.geometry.approximateSize
+            let startZ = min(size.z * 0.32, 1.2)
+            let start = Date()
+            let duration: Double = 1.4
+            insideEye.z = startZ
+            updateCamera()
+            dollyTimer?.invalidate()
+            dollyTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+                MainActor.assumeIsolated {
+                    guard let self else {
+                        timer.invalidate()
+                        return
+                    }
+                    let t = min(Date().timeIntervalSince(start) / duration, 1)
+                    let eased = Float(1 - pow(1 - t, 3))
+                    self.insideEye.z = startZ * (1 - eased)
+                    self.updateCamera()
+                    if t >= 1 {
+                        timer.invalidate()
+                    }
+                }
+            }
         }
 
         @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
