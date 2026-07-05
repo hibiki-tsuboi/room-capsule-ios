@@ -54,6 +54,8 @@ There are no test targets yet. Once one exists, run tests with `xcodebuild ... t
 - `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` is on; off-main work (e.g. `SplatPointCloudLoader`) is marked `nonisolated` and called through `Task.detached`.
 - Deployment target is iOS 26.0 (the developer's devices run iOS 26; 26.0 rather than the template's 26.5 so any 26.x point release can install). Don't raise it to 26.5 without asking; lowering to 17.0 is known to compile cleanly if broader device support is ever needed.
 - RoomPlan code must stay behind `#if canImport(RoomPlan)` with runtime `RoomCaptureSession.isSupported` checks; `RoomCaptureViewDelegate` requires NSCoding, hence the `UIViewController` host in `RoomCaptureScanView.swift`.
+- The UI is dark-mode-only by design: `.preferredColorScheme(.dark)` on the root and on sheets, with `Theme` colors and white text hard-coded for dark. Don't remove those modifiers without first building an adaptive light palette.
+- App metadata lives in pbxproj `INFOPLIST_KEY_*` build settings (no Info.plist file): display name "Room Capsule", App Store category lifestyle, iPhone portrait-only (iPad all orientations), Japanese camera/photo usage strings.
 - Never break the demo-mode path: every feature must be reachable in the simulator via `DemoRoomFactory` data.
 
 ## Language rules

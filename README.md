@@ -101,6 +101,8 @@ Room Capsule/
 
 - **簡易ジオメトリ中心**: RoomPlan の生データ(JSON)と USDZ も保存しつつ、描画の基本は「箱の集まり」(`SimplifiedRoomGeometry`)。USDZ を使うのは「高品質」モードだけで、読めない場合も箱モデルへフォールバックするため、どの環境でも表示が崩れない。
 - **サムネイル**は 2D 間取り Canvas を `ImageRenderer` で PNG 化して生成(AR 不要)。
+- **ダークモード固定**: 配色(`Theme`)・白文字はダーク前提でハードコードしており、ルートと各シートで `.preferredColorScheme(.dark)` を指定。システム設定に追従しない意図的な設計。
+- **アプリ設定**: 表示名は「Room Capsule」、App カテゴリはライフスタイル、iPhone は縦向き固定(iPad は全方向)。いずれも pbxproj の `INFOPLIST_KEY_*` で管理。
 - **プライバシー**: すべてローカル保存。クラウド送信・ログインなし。削除ボタンでファイルごと完全削除。
 
 ## 制限事項
