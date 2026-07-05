@@ -15,6 +15,7 @@ struct SplatImportView: View {
     @State private var showImporter = false
     @State private var errorMessage: String?
     @State private var viewingAsset: SplatAsset?
+    @State private var showCapture = false
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var selectedVersion: RoomScanVersion? {
@@ -58,12 +59,21 @@ struct SplatImportView: View {
                         }
 
                         Button {
+                            showCapture = true
+                        } label: {
+                            Label("この部屋を簡易スキャン(LiDAR)", systemImage: "camera.metering.multispot")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(selectedVersion == nil)
+
+                        Button {
                             showImporter = true
                         } label: {
                             Label("ファイルを取り込む", systemImage: "square.and.arrow.down")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(PrimaryButtonStyle())
+                        .buttonStyle(SecondaryButtonStyle())
                         .disabled(selectedVersion == nil)
 
                         Button {
@@ -119,6 +129,11 @@ struct SplatImportView: View {
         .fullScreenCover(item: $viewingAsset) { asset in
             SplatViewerView(asset: asset)
         }
+        .fullScreenCover(isPresented: $showCapture) {
+            if let version = selectedVersion {
+                SplatCaptureView(capsuleID: capsuleID, versionID: version.id)
+            }
+        }
         .preferredColorScheme(.dark)
     }
 
@@ -137,7 +152,7 @@ struct SplatImportView: View {
             Label("写真っぽい 3D(Gaussian Splatting)", systemImage: "sparkles")
                 .font(.headline)
                 .foregroundStyle(.white)
-            Text("Scaniverse や Luma AI などで書き出した .ply / .splat / .spz ファイルを取り込むと、部屋カプセルに紐づけて保存できます。白い模型が写真のような空間に変わります。")
+            Text("「簡易スキャン」なら LiDAR で色付きの点を集めて、この場で自分の部屋を Splat 化できます。より高品質にしたい場合は Scaniverse などで作った .ply / .splat を取り込んでください。")
                 .font(.subheadline)
                 .foregroundStyle(Color.white.opacity(0.7))
             Label("このビルドは Metal による Gaussian Splatting 実レンダリングに対応しています(3DGS 属性のない .ply は点群表示、.spz は未対応)。", systemImage: "sparkles")

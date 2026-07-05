@@ -11,6 +11,7 @@ struct HomeView: View {
     @State private var showDebugPreview = false
     @State private var debugSplatAsset: SplatAsset?
     @State private var debugSplatARAsset: SplatAsset?
+    @State private var debugCaptureTarget: RoomCapsule?
     @State private var navigationPath = NavigationPath()
 
     var body: some View {
@@ -81,6 +82,11 @@ struct HomeView: View {
         .fullScreenCover(item: $debugSplatARAsset) { asset in
             SplatARView(asset: asset)
         }
+        .fullScreenCover(item: $debugCaptureTarget) { capsule in
+            if let version = capsule.latestVersion {
+                SplatCaptureView(capsuleID: capsule.id, versionID: version.id)
+            }
+        }
         .onAppear {
             if ProcessInfo.processInfo.arguments.contains("-autoPreview") {
                 showDebugPreview = true
@@ -102,6 +108,9 @@ struct HomeView: View {
                     debugSplatARAsset = version.splatAsset
                         ?? (try? SampleSplatFactory.generateAndAttach(capsuleID: capsule.id, versionID: version.id, store: store))
                 }
+            }
+            if ProcessInfo.processInfo.arguments.contains("-autoSplatCapture") {
+                debugCaptureTarget = store.capsules.first ?? store.addDemoCapsule()
             }
         }
         .confirmationDialog(
