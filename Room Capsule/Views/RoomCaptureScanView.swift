@@ -251,15 +251,21 @@ struct SupportedScanView: View {
 
         let geometry = CapturedRoomConverter.simplifiedGeometry(from: room)
 
-        // RoomPlan の生データ(JSON)と USDZ を可能な範囲で保存する
+        // RoomPlan の生データ(JSON)と USDZ を可能な範囲で保存する。
+        // USDZ は家具の形状モデル付き(.model)を優先し、失敗したら既定の
+        // パラメトリック出力へフォールバックする(高品質モードの見た目が良くなる)。
         let capturedRoomJSON = try? JSONEncoder().encode(room)
         var usdzTempURL: URL? = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString).usdz")
         if let url = usdzTempURL {
             do {
-                try room.export(to: url)
+                try room.export(to: url, exportOptions: .model)
             } catch {
-                usdzTempURL = nil
+                do {
+                    try room.export(to: url)
+                } catch {
+                    usdzTempURL = nil
+                }
             }
         }
 

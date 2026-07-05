@@ -50,6 +50,7 @@ struct RoomImmersivePreviewView: View {
                     pins: capsule.pins(forVersion: version.id),
                     ghosts: capsule.ghosts(forVersion: version.id),
                     mode: mode,
+                    usdzURL: version.usdzURL,
                     startsInside: startsInside,
                     pinPlacementActive: pinPlacementActive,
                     onSelectPart: { selectedPart = $0 },
@@ -121,8 +122,11 @@ struct RoomImmersivePreviewView: View {
                         .padding(.horizontal)
                     }
 
-                    ModeChipsBar(selection: $mode)
-                        .padding(.bottom, 12)
+                    ModeChipsBar(
+                        modes: RoomDisplayMode.availableModes(hasUSDZ: version.usdzURL != nil),
+                        selection: $mode
+                    )
+                    .padding(.bottom, 12)
                 }
             } else {
                 ContentUnavailableView("表示できるバージョンがありません", systemImage: "cube.transparent")
@@ -159,6 +163,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
     var pins: [RoomMemoPin]
     var ghosts: [FurnitureGhost]
     var mode: RoomDisplayMode
+    var usdzURL: URL? = nil
     var startsInside: Bool
     var pinPlacementActive: Bool
     var onSelectPart: (RoomPartInfo?) -> Void
@@ -259,6 +264,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
             hasher.combine(parent.pins)
             hasher.combine(parent.ghosts)
             hasher.combine(parent.mode)
+            hasher.combine(parent.usdzURL)
             let signature = hasher.finalize()
             guard force || signature != contentSignature else { return }
             contentSignature = signature
@@ -269,7 +275,8 @@ struct RoomPreviewARContainer: UIViewRepresentable {
                 geometry: parent.geometry,
                 pins: parent.pins,
                 ghosts: parent.ghosts,
-                mode: parent.mode
+                mode: parent.mode,
+                usdzURL: parent.usdzURL
             )
             worldAnchor?.addChild(entity)
             roomEntity = entity

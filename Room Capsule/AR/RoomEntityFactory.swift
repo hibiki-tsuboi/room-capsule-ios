@@ -7,6 +7,7 @@ import simd
 
 enum RoomDisplayMode: String, CaseIterable, Identifiable {
     case model          // 白いドールハウス
+    case scanModel      // RoomPlan の USDZ をそのまま表示(高品質)
     case dimensions     // 寸法ラベル付き
     case xray           // 壁を半透明にして中が見える
     case furnitureOnly  // 家具・設備だけ
@@ -20,6 +21,7 @@ enum RoomDisplayMode: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .model: return "模型"
+        case .scanModel: return "高品質"
         case .dimensions: return "寸法"
         case .xray: return "X線"
         case .furnitureOnly: return "家具だけ"
@@ -33,6 +35,7 @@ enum RoomDisplayMode: String, CaseIterable, Identifiable {
     var symbolName: String {
         switch self {
         case .model: return "cube.fill"
+        case .scanModel: return "shippingbox.fill"
         case .dimensions: return "ruler"
         case .xray: return "cube.transparent"
         case .furnitureOnly: return "sofa.fill"
@@ -41,6 +44,34 @@ enum RoomDisplayMode: String, CaseIterable, Identifiable {
         case .photo: return "sparkles"
         case .wireframe: return "scribble.variable"
         }
+    }
+
+    /// USDZ の有無に応じて選択できるモード一覧
+    static func availableModes(hasUSDZ: Bool) -> [RoomDisplayMode] {
+        hasUSDZ ? allCases : allCases.filter { $0 != .scanModel }
+    }
+}
+
+// MARK: - USDZ モデルキャッシュ
+
+/// RoomPlan がエクスポートした USDZ の読み込みキャッシュ。
+/// Entity は同時に 1 箇所にしか置けないため、利用側には clone を返す。
+@MainActor
+enum USDZModelCache {
+    private static var cache: [URL: Entity] = [:]
+
+    static func cloneEntity(for url: URL) -> Entity? {
+        if let cached = cache[url] {
+            return cached.clone(recursive: true)
+        }
+        guard FileManager.default.fileExists(atPath: url.path),
+              let entity = try? Entity.load(contentsOf: url) else {
+            return nil
+        }
+        // タップ判定・ピン配置の hitTest 用にコリジョンを付けておく
+        entity.generateCollisionShapes(recursive: true)
+        cache[url] = entity
+        return entity.clone(recursive: true)
     }
 }
 
@@ -113,7 +144,8 @@ enum RoomEntityFactory {
         geometry: SimplifiedRoomGeometry,
         pins: [RoomMemoPin] = [],
         ghosts: [FurnitureGhost] = [],
-        mode: RoomDisplayMode = .model
+        mode: RoomDisplayMode = .model,
+        usdzURL: URL? = nil
     ) -> Entity {
         let root = Entity()
         root.name = "RoomRoot"
@@ -123,7 +155,23 @@ enum RoomEntityFactory {
         content.position = [-center.x, -geometry.floorY, -center.y]
         root.addChild(content)
 
-        let style = ModeStyle(mode: mode)
+        // 高品質モード: RoomPlan の USDZ をそのまま表示。
+        // USDZ はスキャン時と同じ座標系なので、簡易ジオメトリと同じオフセットで揃う。
+        // 読めない場合は模型(箱)へフォールバック。
+        var effectiveMode = mode
+        if mode == .scanModel {
+            if let usdzURL, let usdzEntity = USDZModelCache.cloneEntity(for: usdzURL) {
+                usdzEntity.name = "USDZModel"
+                content.addChild(usdzEntity)
+                for ghost in ghosts {
+                    content.addChild(ghostEntity(ghost, withLabel: false))
+                }
+                return root
+            }
+            effectiveMode = .model
+        }
+
+        let style = ModeStyle(mode: effectiveMode)
 
         if style.showsFloor, let floor = geometry.floor {
             let info = RoomPartInfo(id: UUID(), kind: .floor, name: "床", size: floor.size, subtitle: nil)
@@ -236,7 +284,7 @@ enum RoomEntityFactory {
 
         init(mode: RoomDisplayMode) {
             switch mode {
-            case .model:
+            case .model, .scanModel: // .scanModel は USDZ が読めなかった場合のフォールバック
                 break
             case .dimensions:
                 showsLabels = true
@@ -449,6 +497,10 @@ enum RoomEntityFactory {
     /// 実寸 AR の透明度スライダーや Before/After クロスフェード用に
     /// ツリー全体の透明度係数を変える
     static func applyGlobalOpacity(_ factor: Float, to root: Entity) {
+        // USDZ モデルはマテリアル再構築の対象外なので OpacityComponent で丸ごと制御する
+        if let usdzModel = root.findEntity(named: "USDZModel") {
+            usdzModel.components.set(OpacityComponent(opacity: factor))
+        }
         forEachEntity(root) { entity in
             guard let base = entity.components[BaseAppearanceComponent.self],
                   let model = entity as? ModelEntity else { return }

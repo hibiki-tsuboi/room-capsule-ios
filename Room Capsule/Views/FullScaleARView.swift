@@ -44,6 +44,7 @@ struct FullScaleARView: View {
                     pins: capsule.pins(forVersion: version.id),
                     ghosts: capsule.ghosts(forVersion: version.id),
                     mode: mode,
+                    usdzURL: version.usdzURL,
                     opacity: opacity,
                     miniature: miniature,
                     resetToken: resetToken,
@@ -118,11 +119,8 @@ struct FullScaleARView: View {
                         .padding(.horizontal)
                     }
 
-                    ModeChipsBar(
-                        modes: [.model, .xray, .structureOnly, .furnitureOnly, .memo],
-                        selection: $mode
-                    )
-                    .padding(.bottom, 12)
+                    ModeChipsBar(modes: fullScaleModes, selection: $mode)
+                        .padding(.bottom, 12)
                 }
             } else {
                 CapsuleBackground()
@@ -138,6 +136,15 @@ struct FullScaleARView: View {
                 title: "実寸(3Dプレビュー)"
             )
         }
+    }
+
+    /// 実寸 AR で選べるモード(USDZ があれば高品質を先頭寄りに追加)
+    private var fullScaleModes: [RoomDisplayMode] {
+        var modes: [RoomDisplayMode] = [.model, .xray, .structureOnly, .furnitureOnly, .memo]
+        if version?.usdzURL != nil {
+            modes.insert(.scanModel, at: 1)
+        }
+        return modes
     }
 
     private var closeOverlay: some View {
@@ -159,6 +166,7 @@ struct FullScaleARContainer: UIViewRepresentable {
     var pins: [RoomMemoPin]
     var ghosts: [FurnitureGhost]
     var mode: RoomDisplayMode
+    var usdzURL: URL? = nil
     var opacity: Float
     var miniature: Bool
     var resetToken: Int
@@ -238,6 +246,7 @@ struct FullScaleARContainer: UIViewRepresentable {
             hasher.combine(parent.pins)
             hasher.combine(parent.ghosts)
             hasher.combine(parent.mode)
+            hasher.combine(parent.usdzURL)
             let signature = hasher.finalize()
             guard signature != contentSignature else { return }
             contentSignature = signature
@@ -267,7 +276,8 @@ struct FullScaleARContainer: UIViewRepresentable {
                 geometry: parent.geometry,
                 pins: parent.pins,
                 ghosts: parent.ghosts,
-                mode: parent.mode
+                mode: parent.mode,
+                usdzURL: parent.usdzURL
             )
             container.addChild(entity)
             roomEntity = entity

@@ -39,6 +39,7 @@ struct PortalARView: View {
                     geometry: version.simplifiedGeometry,
                     pins: capsule.pins(forVersion: version.id),
                     ghosts: capsule.ghosts(forVersion: version.id),
+                    usdzURL: version.usdzURL,
                     resetToken: resetToken,
                     onEnter: { enterInside = true },
                     onPlacementChange: { placed = $0 }
@@ -113,6 +114,7 @@ struct PortalARContainer: UIViewRepresentable {
     var geometry: SimplifiedRoomGeometry
     var pins: [RoomMemoPin]
     var ghosts: [FurnitureGhost]
+    var usdzURL: URL? = nil
     var resetToken: Int
     var onEnter: () -> Void
     var onPlacementChange: (Bool) -> Void
@@ -284,11 +286,13 @@ struct PortalARContainer: UIViewRepresentable {
             interiorLight.position = [0, height * 0.7, -depth / 2]
             portal.addChild(interiorLight)
 
+            // USDZ があれば実スキャン形状を、なければ写真風の箱モデルを見せる
             let room = RoomEntityFactory.makeRoomEntity(
                 geometry: parent.geometry,
                 pins: parent.pins,
                 ghosts: parent.ghosts,
-                mode: .photo
+                mode: parent.usdzURL != nil ? .scanModel : .photo,
+                usdzURL: parent.usdzURL
             )
             room.scale = SIMD3<Float>(repeating: interiorScale)
             room.position = [0, 0.02, -depth / 2]

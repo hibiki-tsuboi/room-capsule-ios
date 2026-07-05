@@ -70,7 +70,7 @@ struct HomeView: View {
         }
         .fullScreenCover(isPresented: $showDebugPreview) {
             if let first = store.capsules.first {
-                RoomImmersivePreviewView(capsuleID: first.id, versionID: nil)
+                RoomImmersivePreviewView(capsuleID: first.id, versionID: nil, initialMode: debugPreviewMode)
             }
         }
         .fullScreenCover(item: $debugSplatAsset) { asset in
@@ -170,6 +170,11 @@ struct HomeView: View {
         .padding(.top, 10)
         .padding(.bottom, 6)
         .background(.ultraThinMaterial)
+    }
+
+    /// -autoPreview 用の初期表示モード(例: -previewMode scanModel)
+    private var debugPreviewMode: RoomDisplayMode {
+        RoomDisplayMode(rawValue: UserDefaults.standard.string(forKey: "previewMode") ?? "") ?? .model
     }
 
     private func addDemo() {

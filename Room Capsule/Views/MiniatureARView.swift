@@ -42,6 +42,7 @@ struct MiniatureARView: View {
                     pins: capsule.pins(forVersion: version.id),
                     ghosts: capsule.ghosts(forVersion: version.id),
                     mode: mode,
+                    usdzURL: version.usdzURL,
                     resetToken: resetToken,
                     onSelectPart: { selectedPart = $0 },
                     onPlacementChange: { placed = $0 }
@@ -88,8 +89,11 @@ struct MiniatureARView: View {
                         .padding(.horizontal)
                     }
 
-                    ModeChipsBar(selection: $mode)
-                        .padding(.bottom, 12)
+                    ModeChipsBar(
+                        modes: RoomDisplayMode.availableModes(hasUSDZ: version.usdzURL != nil),
+                        selection: $mode
+                    )
+                    .padding(.bottom, 12)
                 }
             } else {
                 CapsuleBackground()
@@ -121,6 +125,7 @@ struct MiniatureARContainer: UIViewRepresentable {
     var pins: [RoomMemoPin]
     var ghosts: [FurnitureGhost]
     var mode: RoomDisplayMode
+    var usdzURL: URL? = nil
     var resetToken: Int
     var onSelectPart: (RoomPartInfo?) -> Void
     var onPlacementChange: (Bool) -> Void
@@ -210,6 +215,7 @@ struct MiniatureARContainer: UIViewRepresentable {
             hasher.combine(parent.pins)
             hasher.combine(parent.ghosts)
             hasher.combine(parent.mode)
+            hasher.combine(parent.usdzURL)
             let signature = hasher.finalize()
             guard signature != contentSignature else { return }
             contentSignature = signature
@@ -224,7 +230,8 @@ struct MiniatureARContainer: UIViewRepresentable {
                 geometry: parent.geometry,
                 pins: parent.pins,
                 ghosts: parent.ghosts,
-                mode: parent.mode
+                mode: parent.mode,
+                usdzURL: parent.usdzURL
             )
             container.addChild(entity)
             roomEntity = entity
@@ -271,6 +278,7 @@ struct MiniatureARContainer: UIViewRepresentable {
             hasher.combine(parent.pins)
             hasher.combine(parent.ghosts)
             hasher.combine(parent.mode)
+            hasher.combine(parent.usdzURL)
             contentSignature = hasher.finalize()
             rebuildRoom()
         }
