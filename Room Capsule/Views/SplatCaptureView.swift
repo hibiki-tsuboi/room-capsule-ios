@@ -1,6 +1,8 @@
 import SwiftUI
 import ARKit
 import RealityKit
+import Metal
+import MetalKit
 import UIKit
 import simd
 
@@ -18,6 +20,7 @@ struct SplatCaptureView: View {
     @State private var pointCount = 0
     @State private var finishToken = 0
     @State private var isSaving = false
+    @State private var previewVisible = true
     @State private var errorMessage: String?
 
     var body: some View {
@@ -34,6 +37,7 @@ struct SplatCaptureView: View {
             } else {
                 SplatCaptureContainer(
                     finishToken: finishToken,
+                    previewVisible: previewVisible,
                     onCountChange: { pointCount = $0 },
                     onFinished: { data, count in
                         save(data: data, count: count)
@@ -52,7 +56,7 @@ struct SplatCaptureView: View {
                                     .font(.caption2)
                                     .foregroundStyle(Theme.accentCyan)
                                     .monospacedDigit()
-                                Text("近づいて撮るほど色が鮮明になります")
+                                Text("塗れた場所はその場で色付きます")
                                     .font(.caption2)
                                     .foregroundStyle(Color.white.opacity(0.5))
                             }
@@ -62,7 +66,24 @@ struct SplatCaptureView: View {
 
                         Spacer()
 
-                        CloseButton { dismiss() }
+                        VStack(spacing: 10) {
+                            CloseButton { dismiss() }
+                            Button {
+                                previewVisible.toggle()
+                                Haptics.light()
+                            } label: {
+                                Image(systemName: previewVisible ? "eye.fill" : "eye.slash")
+                                    .font(.headline)
+                                    .foregroundStyle(previewVisible ? Color.black : Color.white)
+                                    .padding(12)
+                                    .background(
+                                        previewVisible
+                                            ? AnyShapeStyle(Theme.accentGradient)
+                                            : AnyShapeStyle(.ultraThinMaterial),
+                                        in: Circle()
+                                    )
+                            }
+                        }
                     }
                     .padding()
 
@@ -124,6 +145,7 @@ struct SplatCaptureView: View {
 
 struct SplatCaptureContainer: UIViewRepresentable {
     var finishToken: Int
+    var previewVisible: Bool = true
     var onCountChange: (Int) -> Void
     var onFinished: (Data, Int) -> Void
 
@@ -131,8 +153,12 @@ struct SplatCaptureContainer: UIViewRepresentable {
         Coordinator(self)
     }
 
-    func makeUIView(context: Context) -> ARView {
+    func makeUIView(context: Context) -> UIView {
+        let root = UIView()
+
+        // 下層: カメラ映像 + LiDAR 深度
         let arView = ARView(frame: .zero)
+        arView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         let config = ARWorldTrackingConfiguration()
         if ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
             config.frameSemantics = .smoothedSceneDepth
@@ -140,24 +166,39 @@ struct SplatCaptureContainer: UIViewRepresentable {
             config.frameSemantics = .sceneDepth
         }
         arView.session.run(config)
-        context.coordinator.start(arView: arView)
-        return arView
+        root.addSubview(arView)
+
+        // 上層: 収集済みスプラットのライブプレビュー(タッチは透過)
+        let mtkView = MTKView()
+        mtkView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        mtkView.colorPixelFormat = .bgra8Unorm
+        mtkView.preferredFramesPerSecond = 60
+        mtkView.isOpaque = false
+        mtkView.backgroundColor = .clear
+        mtkView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        mtkView.isUserInteractionEnabled = false
+        root.addSubview(mtkView)
+
+        context.coordinator.start(arView: arView, mtkView: mtkView)
+        return root
     }
 
-    func updateUIView(_ uiView: ARView, context: Context) {
+    func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.syncPreviewVisibility()
         context.coordinator.handleFinishTokenIfNeeded()
     }
 
-    static func dismantleUIView(_ uiView: ARView, coordinator: Coordinator) {
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         coordinator.stop()
-        uiView.session.pause()
     }
 
     @MainActor
     final class Coordinator: NSObject {
         var parent: SplatCaptureContainer
         private weak var arView: ARView?
+        private weak var mtkView: MTKView?
+        private var previewRenderer: LiveSplatPreviewRenderer?
         private let accumulator = LiDARSplatAccumulator()
         private var captureTimer: Timer?
         private var lastFinishToken = 0
@@ -167,8 +208,20 @@ struct SplatCaptureContainer: UIViewRepresentable {
             self.lastFinishToken = parent.finishToken
         }
 
-        func start(arView: ARView) {
+        func start(arView: ARView, mtkView: MTKView) {
             self.arView = arView
+            self.mtkView = mtkView
+
+            if let renderer = try? LiveSplatPreviewRenderer(
+                capacity: accumulator.maxPoints,
+                voxelSize: accumulator.voxelSize
+            ) {
+                renderer.arSession = arView.session
+                mtkView.device = renderer.device
+                mtkView.delegate = renderer
+                previewRenderer = renderer // MTKView.delegate は weak なのでここで保持
+            }
+
             // 0.12 秒間隔で currentFrame を取り込む(フレームを保持しないので ARKit に優しい)
             captureTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -180,11 +233,18 @@ struct SplatCaptureContainer: UIViewRepresentable {
         func stop() {
             captureTimer?.invalidate()
             captureTimer = nil
+            arView?.session.pause()
+        }
+
+        func syncPreviewVisibility() {
+            mtkView?.isHidden = !parent.previewVisible
+            previewRenderer?.isVisible = parent.previewVisible
         }
 
         private func captureTick() {
             guard let frame = arView?.session.currentFrame else { return }
             accumulator.ingest(frame: frame)
+            previewRenderer?.sync(with: accumulator)
             parent.onCountChange(accumulator.pointCount)
         }
 

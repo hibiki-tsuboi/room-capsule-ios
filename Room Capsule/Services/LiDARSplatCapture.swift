@@ -34,6 +34,12 @@ final class LiDARSplatAccumulator {
 
     private var voxels: [Int64: VoxelSample] = [:]
 
+    // ライブプレビュー用の追記専用配列(新規ボクセルの初回サンプルのみ。
+    // 色の平均化や法線の更新は反映しない — プレビュー用途なので十分)
+    private(set) var previewPositions: [Float] = []
+    private(set) var previewColors: [UInt8] = []
+    var previewCount: Int { previewPositions.count / 3 }
+
     var pointCount: Int { voxels.count }
     var isFull: Bool { voxels.count >= maxPoints }
 
@@ -169,6 +175,14 @@ final class LiDARSplatAccumulator {
                         normalSum: normalWorld,
                         sampleCount: 1
                     )
+                    // ライブプレビューへ追記
+                    previewPositions.append(world.x)
+                    previewPositions.append(world.y)
+                    previewPositions.append(world.z)
+                    previewColors.append(UInt8(min(max(rgb.x, 0), 1) * 255))
+                    previewColors.append(UInt8(min(max(rgb.y, 0), 1) * 255))
+                    previewColors.append(UInt8(min(max(rgb.z, 0), 1) * 255))
+                    previewColors.append(235)
                 }
             }
             y += 1
@@ -236,6 +250,8 @@ final class LiDARSplatAccumulator {
 
     func reset() {
         voxels.removeAll(keepingCapacity: true)
+        previewPositions.removeAll(keepingCapacity: true)
+        previewColors.removeAll(keepingCapacity: true)
     }
 
     // MARK: - 内部
