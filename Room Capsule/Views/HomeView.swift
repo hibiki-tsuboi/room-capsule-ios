@@ -10,6 +10,7 @@ struct HomeView: View {
     /// 起動引数 -autoPreview / -autoSplat での動作確認用(シミュレータ検証向け)
     @State private var showDebugPreview = false
     @State private var debugSplatAsset: SplatAsset?
+    @State private var debugSplatARAsset: SplatAsset?
     @State private var navigationPath = NavigationPath()
 
     var body: some View {
@@ -77,6 +78,9 @@ struct HomeView: View {
         .fullScreenCover(item: $debugSplatAsset) { asset in
             SplatViewerView(asset: asset)
         }
+        .fullScreenCover(item: $debugSplatARAsset) { asset in
+            SplatARView(asset: asset)
+        }
         .onAppear {
             if ProcessInfo.processInfo.arguments.contains("-autoPreview") {
                 showDebugPreview = true
@@ -89,6 +93,13 @@ struct HomeView: View {
                 let capsule = store.capsules.first ?? store.addDemoCapsule()
                 if let version = capsule.latestVersion {
                     debugSplatAsset = version.splatAsset
+                        ?? (try? SampleSplatFactory.generateAndAttach(capsuleID: capsule.id, versionID: version.id, store: store))
+                }
+            }
+            if ProcessInfo.processInfo.arguments.contains("-autoSplatAR") {
+                let capsule = store.capsules.first ?? store.addDemoCapsule()
+                if let version = capsule.latestVersion {
+                    debugSplatARAsset = version.splatAsset
                         ?? (try? SampleSplatFactory.generateAndAttach(capsuleID: capsule.id, versionID: version.id, store: store))
                 }
             }

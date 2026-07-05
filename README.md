@@ -37,6 +37,7 @@ xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule
 - `-seedDemo` … 初回起動時にデモ部屋を自動投入(データが空のときのみ)
 - `-autoPreview` … 起動直後に最初のカプセルの 3D プレビューを自動表示(動作確認用)
 - `-autoSplat` … サンプル Splat を生成・添付して実レンダリングビューアを自動表示(動作確認用)
+- `-autoSplatAR` … サンプル Splat でスプラット AR 画面を自動表示(動作確認用)
 - `-previewMode <rawValue>` … `-autoPreview` の初期表示モードを指定(例: `-previewMode scanModel`)
 - `-autoDetail` … 起動直後に最初のカプセルの詳細画面を自動表示(動作確認用)
 
@@ -49,6 +50,7 @@ xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule
    - **実寸で呼び出す** — 床タップで原点を決め 1:1 表示。透明度スライダー、ミニチュア⇄実寸切替
    - **ポータルを開く** — AR のドアの向こうに部屋が見える(遮蔽シェル使用)。ドアをタップすると光のバースト → 白フェード → ドアから歩き入るカメラ演出で部屋の中へ。退出時も白フェード
    - **写真っぽく見る** — 模型がフェードアウトし、Metal による Gaussian Splatting 実レンダリングへクロスフェード
+   - **スプラット AR** — 写真のようなスプラットの部屋を**現実空間に置く**。床タップで設置、ピンチ拡大縮小・回転・移動、ミニチュア⇄実寸切替(実寸なら中に入って歩ける)
    - **時間を比べる** — Before / After をスライダーでクロスフェード
    - **図面で見る** — SwiftUI Canvas の 2D 間取り(寸法・凡例・ピンチズーム)
    - **メモを浮かべる** — 空間メモピン(カテゴリ・写真添付・3D プレビューでのタップ配置)
@@ -65,6 +67,7 @@ xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule
 - 対応形式: `.splat`(32 バイトレコード)と 3DGS の `.ply`(`scale_0..2` / `rot_0..3` / `opacity` / `f_dc_*`、ASCII / binary_little_endian)。
 - フォールバック: 3DGS 属性のない普通の `.ply` 点群は SceneKit の**点群プレビュー**表示、`.spz` は gzip 展開未実装のためメタデータ表示のみ。
 - Splat 管理画面の「**サンプル Splat を生成**」で、手続き生成したサンプルルームの `.splat` を作ってその場で実レンダリングを体験できます(実データがなくても OK)。
+- **AR 表示に対応**: ARView(カメラ映像・平面検出)の上に透明な MTKView を重ね、毎フレーム ARFrame のカメラ行列でスプラットを描画。モデル行列(配置・回転・一様スケール)はビュー行列に合成され、共分散投影に s²·Σ として自然に伝播するためシェーダは共通です。
 - レンダラーは `SplatRenderable` プロトコルで抽象化されており(`SplatRendererRegistry.active`)、別実装への差し替えも可能です。
 
 ## アーキテクチャ
@@ -111,6 +114,7 @@ Room Capsule/
 
 基本フロー(スキャン → ミニチュア / 実寸 / ポータル)は実機確認済み。現時点で未確認・要チェックなのは:
 
+0. **スプラット AR** — 床タップ設置、ミニチュア⇄実寸切替、実寸で部屋の中を歩く。カメラを速く動かしたときのソート追従と、カメラ映像とのズレがないか
 1. **高品質(USDZ)モード** — 部屋をスキャンし直すと `.model` 形式(家具の形状モデル付き)で USDZ が保存される。ミニチュア AR / 3D プレビューで「模型」と「高品質」を見比べる
 2. **実データの Gaussian Splatting** — Scaniverse 等で書き出した `.ply` / `.splat` を取り込み、実レンダリングの見え方(色味・ノイズ・ソート挙動)を確認
 3. 実寸 AR の「高品質」モードで透明度スライダーが効くこと(OpacityComponent 経由)

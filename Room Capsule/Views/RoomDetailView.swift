@@ -9,6 +9,7 @@ enum DetailScreen: Identifiable, Hashable {
     case fullScale
     case portal
     case photoMode
+    case splatAR
     case timeline
     case floorPlan
     case memoList
@@ -23,6 +24,7 @@ enum DetailScreen: Identifiable, Hashable {
         case .fullScale: return "fullScale"
         case .portal: return "portal"
         case .photoMode: return "photoMode"
+        case .splatAR: return "splatAR"
         case .timeline: return "timeline"
         case .floorPlan: return "floorPlan"
         case .memoList: return "memoList"
@@ -340,6 +342,14 @@ struct RoomDetailView: View {
             ModeGridButton(title: "写真っぽく見る", subtitle: "Gaussian Splatting", systemImage: "sparkles", enabled: hasVersion) {
                 activeScreen = .photoMode
             }
+            ModeGridButton(
+                title: "スプラット AR",
+                subtitle: "写真の部屋を現実に置く",
+                systemImage: "wand.and.rays",
+                enabled: selectedVersion?.splatAsset != nil
+            ) {
+                activeScreen = .splatAR
+            }
             ModeGridButton(title: "時間を比べる", subtitle: "Before / After", systemImage: "clock.arrow.2.circlepath", enabled: hasVersion) {
                 if capsule.versions.count >= 2 {
                     activeScreen = .timeline
@@ -381,6 +391,12 @@ struct RoomDetailView: View {
             PortalARView(capsuleID: capsuleID, versionID: versionID)
         case .photoMode:
             PhotoModeView(capsuleID: capsuleID, versionID: versionID)
+        case .splatAR:
+            if let asset = selectedVersion?.splatAsset {
+                SplatARView(asset: asset)
+            } else {
+                ContentUnavailableView("Splat がありません", systemImage: "sparkles")
+            }
         case .timeline:
             TimelineComparisonView(capsuleID: capsuleID)
         case .floorPlan:

@@ -15,6 +15,9 @@ nonisolated struct GaussianSplatCloud: Sendable {
     /// r, g, b, a × count(a = 不透明度)
     var colors: [UInt8]
     var boundingRadius: Float
+    /// 再センタリング後の外接ボックス(AR 配置時の床合わせに使う)
+    var boundsMin: SIMD3<Float> = .zero
+    var boundsMax: SIMD3<Float> = .zero
     var totalPointCount: Int
 
     var isSubsampled: Bool { count < totalPointCount }
@@ -199,11 +202,15 @@ nonisolated enum GaussianSplatLoader {
 
             var positions = [Float](repeating: 0, count: count * 3)
             var maxDistanceSquared: Float = 0
+            var boundsMin = SIMD3<Float>(repeating: .greatestFiniteMagnitude)
+            var boundsMax = SIMD3<Float>(repeating: -.greatestFiniteMagnitude)
             for (i, p) in rawPositions.enumerated() {
                 let c = p - centroid
                 positions[3 * i + 0] = c.x
                 positions[3 * i + 1] = c.y
                 positions[3 * i + 2] = c.z
+                boundsMin = simd_min(boundsMin, c)
+                boundsMax = simd_max(boundsMax, c)
                 maxDistanceSquared = max(maxDistanceSquared, simd_length_squared(c))
             }
             return GaussianSplatCloud(
@@ -212,6 +219,8 @@ nonisolated enum GaussianSplatLoader {
                 covariances: covariances,
                 colors: colors,
                 boundingRadius: max(sqrt(maxDistanceSquared), 0.5),
+                boundsMin: boundsMin,
+                boundsMax: boundsMax,
                 totalPointCount: totalPointCount
             )
         }

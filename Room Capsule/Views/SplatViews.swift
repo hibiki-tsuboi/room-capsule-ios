@@ -239,6 +239,7 @@ struct SplatViewerView: View {
 
     @State private var loadState: LoadState = .loading
     @State private var flipUpsideDown = true
+    @State private var showAR = false
 
     var body: some View {
         ZStack {
@@ -339,6 +340,18 @@ struct SplatViewerView: View {
                                     .background(.ultraThinMaterial, in: Circle())
                             }
                         }
+                        if showsARButton {
+                            Button {
+                                showAR = true
+                                Haptics.medium()
+                            } label: {
+                                Image(systemName: "arkit")
+                                    .font(.headline)
+                                    .foregroundStyle(.black)
+                                    .padding(12)
+                                    .background(Theme.accentGradient, in: Circle())
+                            }
+                        }
                     }
                 }
                 .padding()
@@ -348,6 +361,16 @@ struct SplatViewerView: View {
         .task(id: asset.id) {
             await load()
         }
+        .fullScreenCover(isPresented: $showAR) {
+            SplatARView(asset: asset)
+        }
+    }
+
+    /// 実レンダリング中かつ AR 対応端末なら「AR で置く」を出す
+    private var showsARButton: Bool {
+        guard !embedded, ARCapabilities.isARSupported else { return false }
+        if case .gaussian = loadState { return true }
+        return false
     }
 
     private var badgeText: String {
