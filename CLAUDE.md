@@ -14,19 +14,19 @@ Build for the simulator:
 
 ```sh
 xcodebuild -project "Room Capsule.xcodeproj" -scheme "Room Capsule" \
-  -destination 'platform=iOS Simulator,name=iPhone 15 Pro,OS=17.0' build
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.0' build
 ```
 
-(Always pass `OS=17.0` — bare `name=iPhone 15 Pro` sometimes fails to match on this machine.)
+(Always pass an explicit `OS=` — a bare device name sometimes fails to match on this machine.)
 
 Run the app in the simulator (after building):
 
 ```sh
-xcrun simctl boot "iPhone 15 Pro"  # if not already booted
+xcrun simctl boot "iPhone 17 Pro"  # if not already booted
 # IMPORTANT: resolve the .app via -showBuildSettings (multiple DerivedData dirs exist;
 # a bare `find` may pick a stale template build)
 BUILT_DIR=$(xcodebuild -project "Room Capsule.xcodeproj" -scheme "Room Capsule" \
-  -destination 'platform=iOS Simulator,name=iPhone 15 Pro,OS=17.0' \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.0' \
   -showBuildSettings build 2>/dev/null | grep -m1 BUILT_PRODUCTS_DIR | sed 's/.*= //')
 xcrun simctl install booted "$BUILT_DIR/Room Capsule.app"
 xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule -seedDemo
@@ -51,7 +51,7 @@ There are no test targets yet. Once one exists, run tests with `xcodebuild ... t
 
 - Build settings use `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY`: every file must explicitly import what it uses (e.g. `import Combine` for `ObservableObject/@Published`, `import UIKit` for `UIColor`).
 - `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` is on; off-main work (e.g. `SplatPointCloudLoader`) is marked `nonisolated` and called through `Task.detached`.
-- Deployment target is iOS 17.0 (deliberately lowered from the template's 26.5 for device compatibility; RoomPlan floor APIs need ≥17).
+- Deployment target is iOS 26.0 (the developer's devices run iOS 26; 26.0 rather than the template's 26.5 so any 26.x point release can install). Don't raise it to 26.5 without asking; lowering to 17.0 is known to compile cleanly if broader device support is ever needed.
 - RoomPlan code must stay behind `#if canImport(RoomPlan)` with runtime `RoomCaptureSession.isSupported` checks; `RoomCaptureViewDelegate` requires NSCoding, hence the `UIViewController` host in `RoomCaptureScanView.swift`.
 - Never break the demo-mode path: every feature must be reachable in the simulator via `DemoRoomFactory` data.
 
