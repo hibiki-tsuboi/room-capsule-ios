@@ -18,6 +18,10 @@ nonisolated struct GaussianSplatCloud: Sendable {
     /// 再センタリング後の外接ボックス(AR 配置時の床合わせに使う)
     var boundsMin: SIMD3<Float> = .zero
     var boundsMax: SIMD3<Float> = .zero
+    /// 高次球面調和の次数(0 = DC のみ)。>0 のとき shCoefficients を持つ
+    var shDegree: Int = 0
+    /// 高次 SH 係数(チャンネルメジャー 45 half / splat。次数 < 3 はゼロ詰め)
+    var shCoefficients: [Float16] = []
     var totalPointCount: Int
 
     var isSubsampled: Bool { count < totalPointCount }
@@ -132,7 +136,28 @@ nonisolated enum GaussianSplatLoader {
         let colorReader = PLYColorReader(header: header)
         let step = max(1, (header.vertexCount + maxSplats - 1) / maxSplats)
 
+        // 高次 SH(f_rest_0..44)。存在すれば視線依存色に使う
+        var restIndices: [Int] = []
+        var restIndex = 0
+        while let index = header.index(of: "f_rest_\(restIndex)") {
+            restIndices.append(index)
+            restIndex += 1
+        }
+        let perChannel = restIndices.count / 3
+        let shDegree: Int
+        let usedPerChannel: Int
+        switch perChannel {
+        case 15...: shDegree = 3; usedPerChannel = 15
+        case 8...: shDegree = 2; usedPerChannel = 8
+        case 3...: shDegree = 1; usedPerChannel = 3
+        default: shDegree = 0; usedPerChannel = 0
+        }
+
         var builder = Builder(capacity: header.vertexCount / step + 1)
+        builder.shDegree = shDegree
+        if shDegree > 0 {
+            builder.shCoefficients.reserveCapacity((header.vertexCount / step + 1) * 45)
+        }
 
         try header.forEachRecord(in: data, step: step) { values in
             let position = SIMD3<Float>(values[xIndex], values[yIndex], values[zIndex])
@@ -150,6 +175,17 @@ nonisolated enum GaussianSplatLoader {
                 r: UInt8(rgb.x * 255), g: UInt8(rgb.y * 255), b: UInt8(rgb.z * 255),
                 a: UInt8(simd_clamp(alpha, 0, 1) * 255)
             )
+            if shDegree > 0 {
+                // PLY はチャンネルメジャー(R の全係数 → G → B)。15 係数へゼロ詰めして格納
+                for channel in 0..<3 {
+                    for j in 0..<usedPerChannel {
+                        builder.shCoefficients.append(Float16(values[restIndices[channel * perChannel + j]]))
+                    }
+                    for _ in usedPerChannel..<15 {
+                        builder.shCoefficients.append(0)
+                    }
+                }
+            }
         }
         return builder.finalize(totalPointCount: header.vertexCount)
     }
@@ -160,6 +196,8 @@ nonisolated enum GaussianSplatLoader {
         var rawPositions: [SIMD3<Float>] = []
         var covariances: [Float] = []
         var colors: [UInt8] = []
+        var shDegree: Int = 0
+        var shCoefficients: [Float16] = []
 
         init(capacity: Int) {
             rawPositions.reserveCapacity(capacity)
@@ -194,6 +232,8 @@ nonisolated enum GaussianSplatLoader {
                     boundingRadius: 1, totalPointCount: totalPointCount
                 )
             }
+            // SH 配列が欠けている(パース中断など)場合は安全側で DC のみにする
+            let effectiveDegree = shCoefficients.count == count * 45 ? shDegree : 0
             var centroid = SIMD3<Float>(repeating: 0)
             for p in rawPositions {
                 centroid += p
@@ -221,6 +261,8 @@ nonisolated enum GaussianSplatLoader {
                 boundingRadius: max(sqrt(maxDistanceSquared), 0.5),
                 boundsMin: boundsMin,
                 boundsMax: boundsMax,
+                shDegree: effectiveDegree,
+                shCoefficients: effectiveDegree > 0 ? shCoefficients : [],
                 totalPointCount: totalPointCount
             )
         }

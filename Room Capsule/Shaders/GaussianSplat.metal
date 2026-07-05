@@ -12,11 +12,52 @@
 using namespace metal;
 
 struct SplatUniforms {
-    float4x4 view;        // モデル(上下反転)込みのビュー行列
+    float4x4 view;         // モデル(上下反転)込みのビュー行列
     float4x4 projection;
-    float2 viewport;      // ドローアブルのピクセルサイズ
-    float2 focal;         // ピクセル単位の焦点距離 (fx, fy)
+    float2 viewport;       // ドローアブルのピクセルサイズ
+    float2 focal;          // ピクセル単位の焦点距離 (fx, fy)
+    float3 cameraPosition; // モデル空間でのカメラ位置(SH の視線方向用)
+    int shDegree;          // 0 = DC のみ / 1〜3 = 高次 SH
 };
+
+// 3DGS の高次球面調和(l = 1..3)。DC 項は colors に焼き込み済みなので
+// ここでは高次の寄与だけを返す。係数配置はチャンネルメジャー
+// (sh[0..14] = R, sh[15..29] = G, sh[30..44] = B)。
+static float3 evalSHRest(int degree, float3 dir, const device half* sh) {
+    const float x = dir.x;
+    const float y = dir.y;
+    const float z = dir.z;
+
+    // l = 1
+    float3 result =
+        (-0.48860251f * y) * float3(sh[0], sh[15], sh[30]) +
+        (0.48860251f * z) * float3(sh[1], sh[16], sh[31]) +
+        (-0.48860251f * x) * float3(sh[2], sh[17], sh[32]);
+
+    if (degree >= 2) {
+        const float xx = x * x;
+        const float yy = y * y;
+        const float zz = z * z;
+        result +=
+            (1.09254843f * x * y) * float3(sh[3], sh[18], sh[33]) +
+            (-1.09254843f * y * z) * float3(sh[4], sh[19], sh[34]) +
+            (0.31539157f * (2.0f * zz - xx - yy)) * float3(sh[5], sh[20], sh[35]) +
+            (-1.09254843f * x * z) * float3(sh[6], sh[21], sh[36]) +
+            (0.54627421f * (xx - yy)) * float3(sh[7], sh[22], sh[37]);
+
+        if (degree >= 3) {
+            result +=
+                (-0.59004359f * y * (3.0f * xx - yy)) * float3(sh[8], sh[23], sh[38]) +
+                (2.89061144f * x * y * z) * float3(sh[9], sh[24], sh[39]) +
+                (-0.45704580f * y * (4.0f * zz - xx - yy)) * float3(sh[10], sh[25], sh[40]) +
+                (0.37317633f * z * (2.0f * zz - 3.0f * xx - 3.0f * yy)) * float3(sh[11], sh[26], sh[41]) +
+                (-0.45704580f * x * (4.0f * zz - xx - yy)) * float3(sh[12], sh[27], sh[42]) +
+                (1.44530572f * z * (xx - yy)) * float3(sh[13], sh[28], sh[43]) +
+                (-0.59004359f * x * (xx - yy)) * float3(sh[14], sh[29], sh[44]);
+        }
+    }
+    return result;
+}
 
 struct SplatOut {
     float4 position [[position]];
@@ -39,7 +80,8 @@ vertex SplatOut splatVertex(
     const device float* covariances [[buffer(1)]],
     const device uchar4* colors [[buffer(2)]],
     const device uint* sortedIndices [[buffer(3)]],
-    constant SplatUniforms& u [[buffer(4)]])
+    constant SplatUniforms& u [[buffer(4)]],
+    const device half* shCoefficients [[buffer(5)]])
 {
     uint gi = sortedIndices[iid];
     float3 center = float3(positions[gi]);
@@ -98,7 +140,15 @@ vertex SplatOut splatVertex(
     SplatOut out;
     out.position = float4(centerNdc + offsetNdc, 0.0, 1.0);
     out.local = corner;
-    out.color = half4(colors[gi]) / 255.0h;
+
+    // 色: DC(焼き込み済み)+ 高次 SH による視線依存の補正
+    const uchar4 colorByte = colors[gi];
+    float3 rgb = float3(colorByte.r, colorByte.g, colorByte.b) / 255.0f;
+    if (u.shDegree > 0) {
+        const float3 direction = normalize(center - u.cameraPosition);
+        rgb = saturate(rgb + evalSHRest(u.shDegree, direction, shCoefficients + gi * 45));
+    }
+    out.color = half4(half3(rgb), half(colorByte.a) / 255.0h);
     return out;
 }
 

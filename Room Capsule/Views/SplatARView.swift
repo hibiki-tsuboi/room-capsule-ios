@@ -398,6 +398,7 @@ final class SplatARRenderer: NSObject, MTKViewDelegate {
         )
         let cameraView = frame.camera.viewMatrix(for: orientation)
         let combined = cameraView * modelMatrix()
+        let inverse = combined.inverse
 
         let uniforms = SplatUniforms(
             view: combined,
@@ -406,7 +407,9 @@ final class SplatARRenderer: NSObject, MTKViewDelegate {
             focal: [
                 projection.columns.0.x * Float(size.width) / 2,
                 projection.columns.1.y * Float(size.height) / 2,
-            ]
+            ],
+            cameraPosition: SIMD3<Float>(inverse.columns.3.x, inverse.columns.3.y, inverse.columns.3.z),
+            shDegree: Int32(core.shDegree)
         )
         core.resortIfNeeded(combinedView: combined)
         core.render(in: view, uniforms: uniforms)

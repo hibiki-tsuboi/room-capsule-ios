@@ -80,6 +80,26 @@ struct SplatUniforms {
     var projection: simd_float4x4
     var viewport: SIMD2<Float>
     var focal: SIMD2<Float>
+    /// モデル空間でのカメラ位置(高次 SH の視線方向計算用)
+    var cameraPosition: SIMD3<Float>
+    /// 0 = DC のみ / 1〜3 = 高次 SH
+    var shDegree: Int32
+
+    init(
+        view: simd_float4x4,
+        projection: simd_float4x4,
+        viewport: SIMD2<Float>,
+        focal: SIMD2<Float>,
+        cameraPosition: SIMD3<Float> = .zero,
+        shDegree: Int32 = 0
+    ) {
+        self.view = view
+        self.projection = projection
+        self.viewport = viewport
+        self.focal = focal
+        self.cameraPosition = cameraPosition
+        self.shDegree = shDegree
+    }
 
     static func placeholder(viewport: CGSize) -> SplatUniforms {
         SplatUniforms(
@@ -104,6 +124,9 @@ final class SplatRenderCore {
     private let positionBuffer: MTLBuffer
     private let covarianceBuffer: MTLBuffer
     private let colorBuffer: MTLBuffer
+    private let shBuffer: MTLBuffer
+    /// 0 = DC のみ。クラウドが高次 SH を持つときだけ > 0
+    let shDegree: Int
     private var indexBuffers: [MTLBuffer]
     private var activeIndexBuffer = 0
 
@@ -155,12 +178,27 @@ final class SplatRenderCore {
             throw MetalSplatError.deviceUnavailable
         }
 
+        // 高次 SH 係数(なければダミーの最小バッファを束ねておく)
+        var shBuffer: MTLBuffer?
+        if !cloud.shCoefficients.isEmpty {
+            shBuffer = cloud.shCoefficients.withUnsafeBufferPointer {
+                device.makeBuffer(bytes: $0.baseAddress!, length: $0.count * 2, options: .storageModeShared)
+            }
+        } else {
+            shBuffer = device.makeBuffer(length: 45 * 2, options: .storageModeShared)
+        }
+        guard let shBuffer else {
+            throw MetalSplatError.deviceUnavailable
+        }
+
         self.device = device
         self.commandQueue = commandQueue
         self.pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
         self.positionBuffer = positionBuffer
         self.covarianceBuffer = covarianceBuffer
         self.colorBuffer = colorBuffer
+        self.shBuffer = shBuffer
+        self.shDegree = cloud.shCoefficients.isEmpty ? 0 : cloud.shDegree
         self.indexBuffers = [indexBufferA, indexBufferB]
         self.cloud = cloud
 
@@ -225,6 +263,7 @@ final class SplatRenderCore {
                 encoder.setVertexBuffer(colorBuffer, offset: 0, index: 2)
                 encoder.setVertexBuffer(indexBuffers[activeIndexBuffer], offset: 0, index: 3)
                 encoder.setVertexBytes(&uniforms, length: MemoryLayout<SplatUniforms>.stride, index: 4)
+                encoder.setVertexBuffer(shBuffer, offset: 0, index: 5)
                 encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: cloud.count)
             }
             encoder.endEncoding()
@@ -317,11 +356,15 @@ final class SplatMetalRenderer: NSObject, MTKViewDelegate {
         let far = max(core.cloud.boundingRadius * 20, radius * 4)
         let projection = Self.perspective(fovY: fovY, aspect: width / height, near: near, far: far)
         let focalY = 0.5 * height / tan(fovY * 0.5)
+        let view = combinedViewMatrix()
+        let inverse = view.inverse
         return SplatUniforms(
-            view: combinedViewMatrix(),
+            view: view,
             projection: projection,
             viewport: [width, height],
-            focal: [focalY, focalY]
+            focal: [focalY, focalY],
+            cameraPosition: SIMD3<Float>(inverse.columns.3.x, inverse.columns.3.y, inverse.columns.3.z),
+            shDegree: Int32(core.shDegree)
         )
     }
 

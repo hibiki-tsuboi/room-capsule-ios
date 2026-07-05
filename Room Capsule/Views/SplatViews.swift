@@ -273,7 +273,7 @@ struct SplatViewerView: View {
                 VStack {
                     Spacer()
                     VStack(spacing: 6) {
-                        Text("\(cloud.count.formatted()) スプラットを実レンダリング中\(cloud.isSubsampled ? "(間引きあり・全 \(cloud.totalPointCount.formatted()))" : "")")
+                        Text("\(cloud.count.formatted()) スプラットを実レンダリング中\(cloud.shDegree > 0 ? "・SH \(cloud.shDegree) 次(視線依存色)" : "")\(cloud.isSubsampled ? "(間引きあり・全 \(cloud.totalPointCount.formatted()))" : "")")
                             .font(.caption2)
                             .foregroundStyle(Color.white.opacity(0.55))
                         Text("ドラッグで回転・ピンチで拡大縮小")
