@@ -57,8 +57,10 @@ struct PointCloudSplatRenderer: SplatRenderable {
 }
 
 enum SplatRendererRegistry {
-    /// 現在使用するレンダラー。Metal 実装ができたらここを差し替える。
-    static let active: any SplatRenderable = PointCloudSplatRenderer()
+    /// 現在使用するレンダラー。
+    /// Metal による実レンダリング(MetalGaussianSplatRenderer)を使い、
+    /// 3DGS 属性のないファイルはビューア側で点群プレビューへフォールバックする。
+    static let active: any SplatRenderable = MetalGaussianSplatRenderer()
 }
 
 // MARK: - SceneKit 点群ビュー

@@ -28,76 +28,34 @@ nonisolated enum SplatLoadError: LocalizedError {
     }
 }
 
-// MARK: - ローダー
+// MARK: - PLY 共通パーサ(点群プレビューと Gaussian ローダーで共用)
 
-/// .splat / .ply(3D Gaussian Splatting 含む)を点群としてパースする。
-/// 実レンダリングではなくプレビュー用途なので、位置と色だけを取り出す。
-nonisolated enum SplatPointCloudLoader {
+nonisolated enum PLYFormat: Sendable {
+    case ascii
+    case binaryLittleEndian
+}
 
-    /// 描画負荷対策の最大点数(超えたら等間隔に間引く)
-    static let maxPoints = 350_000
+nonisolated struct PLYProperty: Sendable {
+    var name: String
+    var byteSize: Int
+    var isFloat: Bool
+    var isDouble: Bool
+    var isUChar: Bool
+}
 
-    static func load(url: URL, fileType: SplatFileType) throws -> SplatPointCloud {
-        switch fileType {
-        case .splat:
-            return try loadDotSplat(url: url)
-        case .ply:
-            return try loadPLY(url: url)
-        case .spz:
-            throw SplatLoadError.unsupportedFormat(".spz(gzip 圧縮)の展開はこのビルドでは未対応です")
-        }
-    }
+nonisolated struct PLYHeader: Sendable {
+    var format: PLYFormat
+    var vertexCount: Int
+    var properties: [PLYProperty]
+    /// データ部の先頭バイトオフセット
+    var dataStart: Int
+    /// binary 時の 1 レコードのバイト数
+    var stride: Int
+    /// binary 時の各プロパティのレコード内オフセット
+    var offsets: [Int]
 
-    // MARK: .splat(antimatter15 形式: 32 バイト固定レコード)
-
-    private static func loadDotSplat(url: URL) throws -> SplatPointCloud {
-        let data = try Data(contentsOf: url)
-        let recordSize = 32
-        let total = data.count / recordSize
-        guard total > 0 else {
-            throw SplatLoadError.corruptFile(".splat のレコードが見つかりません")
-        }
-        let step = max(1, (total + maxPoints - 1) / maxPoints)
-
-        var positions: [SIMD3<Float>] = []
-        var colors: [SIMD3<Float>] = []
-        positions.reserveCapacity(total / step + 1)
-        colors.reserveCapacity(total / step + 1)
-
-        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-            var i = 0
-            while i < total {
-                let base = i * recordSize
-                let x = raw.loadUnaligned(fromByteOffset: base + 0, as: Float32.self)
-                let y = raw.loadUnaligned(fromByteOffset: base + 4, as: Float32.self)
-                let z = raw.loadUnaligned(fromByteOffset: base + 8, as: Float32.self)
-                // 12...23 はスケール(プレビューでは未使用)
-                let r = Float(raw[base + 24]) / 255
-                let g = Float(raw[base + 25]) / 255
-                let b = Float(raw[base + 26]) / 255
-                if x.isFinite && y.isFinite && z.isFinite {
-                    positions.append([x, y, z])
-                    colors.append([r, g, b])
-                }
-                i += step
-            }
-        }
-        return finalize(positions: positions, colors: colors, totalPointCount: total)
-    }
-
-    // MARK: .ply(ASCII / binary_little_endian、3DGS の f_dc_* 色にも対応)
-
-    private enum PLYFormat {
-        case ascii
-        case binaryLittleEndian
-    }
-
-    private struct PLYProperty {
-        var name: String
-        var byteSize: Int
-        var isFloat: Bool
-        var isDouble: Bool
-        var isUChar: Bool
+    func index(of name: String) -> Int? {
+        properties.firstIndex { $0.name == name }
     }
 
     private static func propertySize(_ type: String) -> (size: Int, isFloat: Bool, isDouble: Bool, isUChar: Bool)? {
@@ -117,8 +75,7 @@ nonisolated enum SplatPointCloudLoader {
         }
     }
 
-    private static func loadPLY(url: URL) throws -> SplatPointCloud {
-        let data = try Data(contentsOf: url)
+    static func parse(_ data: Data) throws -> PLYHeader {
         guard let headerEndRange = data.range(of: Data("end_header\n".utf8)) else {
             throw SplatLoadError.corruptFile("PLY ヘッダの終端(end_header)が見つかりません")
         }
@@ -181,77 +138,37 @@ nonisolated enum SplatPointCloudLoader {
             throw SplatLoadError.unsupportedFormat("vertex が最初の要素でない PLY は未対応です")
         }
 
-        func propertyIndex(_ name: String) -> Int? {
-            properties.firstIndex { $0.name == name }
-        }
-        guard let xIndex = propertyIndex("x"),
-              let yIndex = propertyIndex("y"),
-              let zIndex = propertyIndex("z") else {
-            throw SplatLoadError.corruptFile("PLY に x/y/z プロパティがありません")
+        var offsets: [Int] = []
+        var stride = 0
+        for property in properties {
+            offsets.append(stride)
+            stride += property.byteSize
         }
 
-        // 色: 通常 PLY の red/green/blue、または 3DGS の f_dc_0..2(球面調和 DC 成分)
-        let rgbIndices: (Int, Int, Int)? = {
-            if let r = propertyIndex("red"), let g = propertyIndex("green"), let b = propertyIndex("blue") {
-                return (r, g, b)
-            }
-            return nil
-        }()
-        let dcIndices: (Int, Int, Int)? = {
-            if let r = propertyIndex("f_dc_0"), let g = propertyIndex("f_dc_1"), let b = propertyIndex("f_dc_2") {
-                return (r, g, b)
-            }
-            return nil
-        }()
-        let sh0: Float = 0.28209479177 // 球面調和 l=0 の係数
+        return PLYHeader(
+            format: format,
+            vertexCount: vertexCount,
+            properties: properties,
+            dataStart: headerEndRange.upperBound - data.startIndex,
+            stride: stride,
+            offsets: offsets
+        )
+    }
 
-        let step = max(1, (vertexCount + maxPoints - 1) / maxPoints)
-        var positions: [SIMD3<Float>] = []
-        var colors: [SIMD3<Float>] = []
-        positions.reserveCapacity(vertexCount / step + 1)
-        colors.reserveCapacity(vertexCount / step + 1)
-        let defaultColor = SIMD3<Float>(0.78, 0.8, 0.9)
-
-        func makeColor(_ values: [Float]) -> SIMD3<Float> {
-            if let (r, g, b) = rgbIndices {
-                let scale: Float = properties[r].isUChar ? 255 : 1
-                return simd_clamp(
-                    SIMD3<Float>(values[r] / scale, values[g] / scale, values[b] / scale),
-                    SIMD3<Float>(repeating: 0),
-                    SIMD3<Float>(repeating: 1)
-                )
-            }
-            if let (r, g, b) = dcIndices {
-                return simd_clamp(
-                    SIMD3<Float>(0.5 + sh0 * values[r], 0.5 + sh0 * values[g], 0.5 + sh0 * values[b]),
-                    SIMD3<Float>(repeating: 0),
-                    SIMD3<Float>(repeating: 1)
-                )
-            }
-            return defaultColor
-        }
-
+    /// vertex レコードを step 間隔で列挙し、全プロパティ値を Float 配列として渡す
+    func forEachRecord(in data: Data, step: Int, _ body: ([Float]) -> Void) throws {
         switch format {
         case .binaryLittleEndian:
-            let stride = properties.reduce(0) { $0 + $1.byteSize }
-            var offsets: [Int] = []
-            var acc = 0
-            for p in properties {
-                offsets.append(acc)
-                acc += p.byteSize
-            }
-            let bodyStart = headerEndRange.upperBound - data.startIndex
-            let available = (data.count - bodyStart) / stride
+            let available = (data.count - dataStart) / stride
             let count = min(vertexCount, available)
             guard count > 0 else {
                 throw SplatLoadError.corruptFile("PLY のデータ部が不足しています")
             }
-
             data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
                 var values = [Float](repeating: 0, count: properties.count)
                 var i = 0
                 while i < count {
-                    let recordBase = bodyStart + i * stride
+                    let recordBase = dataStart + i * stride
                     for (pIndex, property) in properties.enumerated() {
                         let offset = recordBase + offsets[pIndex]
                         if property.isFloat {
@@ -266,20 +183,16 @@ nonisolated enum SplatPointCloudLoader {
                             values[pIndex] = Float(raw.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
                         }
                     }
-                    let p = SIMD3<Float>(values[xIndex], values[yIndex], values[zIndex])
-                    if p.x.isFinite && p.y.isFinite && p.z.isFinite {
-                        positions.append(p)
-                        colors.append(makeColor(values))
-                    }
+                    body(values)
                     i += step
                 }
             }
 
         case .ascii:
-            guard let bodyText = String(data: data[headerEndRange.upperBound...], encoding: .ascii) else {
+            guard let bodyText = String(data: data[(data.startIndex + dataStart)...], encoding: .ascii) else {
                 throw SplatLoadError.corruptFile("PLY の ASCII データ部を読めません")
             }
-            var i = 0
+            var values = [Float](repeating: 0, count: properties.count)
             var parsed = 0
             for line in bodyText.split(separator: "\n") {
                 if parsed >= vertexCount { break }
@@ -287,21 +200,145 @@ nonisolated enum SplatPointCloudLoader {
                 if parsed % step != 0 { continue }
                 let comps = line.split(separator: " ", omittingEmptySubsequences: true)
                 guard comps.count >= properties.count else { continue }
-                var values = [Float](repeating: 0, count: properties.count)
                 for pIndex in 0..<properties.count {
                     values[pIndex] = Float(comps[pIndex]) ?? 0
                 }
-                let p = SIMD3<Float>(values[xIndex], values[yIndex], values[zIndex])
-                if p.x.isFinite && p.y.isFinite && p.z.isFinite {
-                    positions.append(p)
-                    colors.append(makeColor(values))
-                }
-                i += 1
+                body(values)
             }
-            _ = i
+        }
+    }
+}
+
+/// 3DGS PLY の色抽出(red/green/blue または f_dc_0..2)を共通化
+nonisolated struct PLYColorReader: Sendable {
+    private let rgbIndices: (Int, Int, Int)?
+    private let rgbIsUChar: Bool
+    private let dcIndices: (Int, Int, Int)?
+    private static let sh0: Float = 0.28209479177 // 球面調和 l=0 の係数
+
+    init(header: PLYHeader) {
+        if let r = header.index(of: "red"), let g = header.index(of: "green"), let b = header.index(of: "blue") {
+            rgbIndices = (r, g, b)
+            rgbIsUChar = header.properties[r].isUChar
+        } else {
+            rgbIndices = nil
+            rgbIsUChar = false
+        }
+        if let r = header.index(of: "f_dc_0"), let g = header.index(of: "f_dc_1"), let b = header.index(of: "f_dc_2") {
+            dcIndices = (r, g, b)
+        } else {
+            dcIndices = nil
+        }
+    }
+
+    func color(from values: [Float]) -> SIMD3<Float> {
+        if let (r, g, b) = rgbIndices {
+            let scale: Float = rgbIsUChar ? 255 : 1
+            return simd_clamp(
+                SIMD3<Float>(values[r] / scale, values[g] / scale, values[b] / scale),
+                SIMD3<Float>(repeating: 0),
+                SIMD3<Float>(repeating: 1)
+            )
+        }
+        if let (r, g, b) = dcIndices {
+            return simd_clamp(
+                SIMD3<Float>(
+                    0.5 + Self.sh0 * values[r],
+                    0.5 + Self.sh0 * values[g],
+                    0.5 + Self.sh0 * values[b]
+                ),
+                SIMD3<Float>(repeating: 0),
+                SIMD3<Float>(repeating: 1)
+            )
+        }
+        return SIMD3<Float>(0.78, 0.8, 0.9)
+    }
+}
+
+// MARK: - 点群ローダー(簡易プレビュー用)
+
+/// .splat / .ply(3D Gaussian Splatting 含む)を点群としてパースする。
+/// Metal 実レンダリングが使えない場合のフォールバック用途。
+nonisolated enum SplatPointCloudLoader {
+
+    /// 描画負荷対策の最大点数(超えたら等間隔に間引く)
+    static let maxPoints = 350_000
+
+    static func load(url: URL, fileType: SplatFileType) throws -> SplatPointCloud {
+        switch fileType {
+        case .splat:
+            return try loadDotSplat(url: url)
+        case .ply:
+            return try loadPLY(url: url)
+        case .spz:
+            throw SplatLoadError.unsupportedFormat(".spz(gzip 圧縮)の展開はこのビルドでは未対応です")
+        }
+    }
+
+    // MARK: .splat(antimatter15 形式: 32 バイト固定レコード)
+
+    private static func loadDotSplat(url: URL) throws -> SplatPointCloud {
+        let data = try Data(contentsOf: url)
+        let recordSize = 32
+        let total = data.count / recordSize
+        guard total > 0 else {
+            throw SplatLoadError.corruptFile(".splat のレコードが見つかりません")
+        }
+        let step = max(1, (total + maxPoints - 1) / maxPoints)
+
+        var positions: [SIMD3<Float>] = []
+        var colors: [SIMD3<Float>] = []
+        positions.reserveCapacity(total / step + 1)
+        colors.reserveCapacity(total / step + 1)
+
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            var i = 0
+            while i < total {
+                let base = i * recordSize
+                let x = raw.loadUnaligned(fromByteOffset: base + 0, as: Float32.self)
+                let y = raw.loadUnaligned(fromByteOffset: base + 4, as: Float32.self)
+                let z = raw.loadUnaligned(fromByteOffset: base + 8, as: Float32.self)
+                let r = Float(raw[base + 24]) / 255
+                let g = Float(raw[base + 25]) / 255
+                let b = Float(raw[base + 26]) / 255
+                if x.isFinite && y.isFinite && z.isFinite {
+                    positions.append([x, y, z])
+                    colors.append([r, g, b])
+                }
+                i += step
+            }
+        }
+        return finalize(positions: positions, colors: colors, totalPointCount: total)
+    }
+
+    // MARK: .ply
+
+    private static func loadPLY(url: URL) throws -> SplatPointCloud {
+        let data = try Data(contentsOf: url)
+        let header = try PLYHeader.parse(data)
+
+        guard let xIndex = header.index(of: "x"),
+              let yIndex = header.index(of: "y"),
+              let zIndex = header.index(of: "z") else {
+            throw SplatLoadError.corruptFile("PLY に x/y/z プロパティがありません")
+        }
+        let colorReader = PLYColorReader(header: header)
+        let step = max(1, (header.vertexCount + maxPoints - 1) / maxPoints)
+
+        var positions: [SIMD3<Float>] = []
+        var colors: [SIMD3<Float>] = []
+        positions.reserveCapacity(header.vertexCount / step + 1)
+        colors.reserveCapacity(header.vertexCount / step + 1)
+
+        try header.forEachRecord(in: data, step: step) { values in
+            let p = SIMD3<Float>(values[xIndex], values[yIndex], values[zIndex])
+            if p.x.isFinite && p.y.isFinite && p.z.isFinite {
+                positions.append(p)
+                colors.append(colorReader.color(from: values))
+            }
         }
 
-        return finalize(positions: positions, colors: colors, totalPointCount: vertexCount)
+        return finalize(positions: positions, colors: colors, totalPointCount: header.vertexCount)
     }
 
     // MARK: 共通後処理

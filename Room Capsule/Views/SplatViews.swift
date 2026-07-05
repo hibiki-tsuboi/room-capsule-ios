@@ -66,6 +66,15 @@ struct SplatImportView: View {
                         .buttonStyle(PrimaryButtonStyle())
                         .disabled(selectedVersion == nil)
 
+                        Button {
+                            generateSample()
+                        } label: {
+                            Label("サンプル Splat を生成", systemImage: "wand.and.stars")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(SecondaryButtonStyle())
+                        .disabled(selectedVersion == nil)
+
                         Spacer(minLength: 40)
                     }
                     .padding()
@@ -113,6 +122,16 @@ struct SplatImportView: View {
         .preferredColorScheme(.dark)
     }
 
+    private func generateSample() {
+        guard let version = selectedVersion else { return }
+        do {
+            _ = try SampleSplatFactory.generateAndAttach(capsuleID: capsuleID, versionID: version.id, store: store)
+            Haptics.success()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private var infoCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("写真っぽい 3D(Gaussian Splatting)", systemImage: "sparkles")
@@ -121,7 +140,7 @@ struct SplatImportView: View {
             Text("Scaniverse や Luma AI などで書き出した .ply / .splat / .spz ファイルを取り込むと、部屋カプセルに紐づけて保存できます。白い模型が写真のような空間に変わります。")
                 .font(.subheadline)
                 .foregroundStyle(Color.white.opacity(0.7))
-            Label("このビルドでは実レンダリングは未対応のため、点群による簡易プレビュー表示になります(レンダラーは差し替え可能な設計です)。", systemImage: "info.circle")
+            Label("このビルドは Metal による Gaussian Splatting 実レンダリングに対応しています(3DGS 属性のない .ply は点群表示、.spz は未対応)。", systemImage: "sparkles")
                 .font(.caption)
                 .foregroundStyle(Theme.accentCyan)
         }
@@ -210,7 +229,10 @@ struct SplatViewerView: View {
 
     private enum LoadState {
         case loading
-        case loaded(SplatPointCloud)
+        /// Metal による実レンダリング
+        case gaussian(GaussianSplatCloud)
+        /// 点群フォールバック(note = フォールバック理由)
+        case points(SplatPointCloud, note: String?)
         case metadataOnly(String)
         case failed(String)
     }
@@ -228,13 +250,37 @@ struct SplatViewerView: View {
                     .tint(Theme.accentCyan)
                     .foregroundStyle(.white)
 
-            case .loaded(let cloud):
+            case .gaussian(let cloud):
+                MetalSplatView(cloud: cloud, flipUpsideDown: flipUpsideDown)
+                    .ignoresSafeArea()
+
+                VStack {
+                    Spacer()
+                    VStack(spacing: 6) {
+                        Text("\(cloud.count.formatted()) スプラットを実レンダリング中\(cloud.isSubsampled ? "(間引きあり・全 \(cloud.totalPointCount.formatted()))" : "")")
+                            .font(.caption2)
+                            .foregroundStyle(Color.white.opacity(0.55))
+                        Text("ドラッグで回転・ピンチで拡大縮小")
+                            .font(.caption2)
+                            .foregroundStyle(Color.white.opacity(0.4))
+                    }
+                    .padding(.bottom, 20)
+                }
+
+            case .points(let cloud, let note):
                 SplatPointCloudView(cloud: cloud, flipUpsideDown: flipUpsideDown)
                     .ignoresSafeArea()
 
                 VStack {
                     Spacer()
                     VStack(spacing: 6) {
+                        if let note {
+                            Text(note)
+                                .font(.caption2)
+                                .foregroundStyle(Color.orange.opacity(0.9))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 24)
+                        }
                         Text("\(cloud.positions.count.formatted()) 点を表示中\(cloud.isSubsampled ? "(間引きあり・全 \(cloud.totalPointCount.formatted()) 点)" : "")")
                             .font(.caption2)
                             .foregroundStyle(Color.white.opacity(0.55))
@@ -268,7 +314,7 @@ struct SplatViewerView: View {
 
             VStack {
                 HStack(alignment: .top) {
-                    Label(SplatRendererAvailability.availability(for: asset).badgeText, systemImage: "info.circle")
+                    Label(badgeText, systemImage: "info.circle")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Theme.accentCyan)
                         .padding(.horizontal, 12)
@@ -281,7 +327,7 @@ struct SplatViewerView: View {
                         if !embedded {
                             CloseButton { dismiss() }
                         }
-                        if case .loaded = loadState {
+                        if showsFlipButton {
                             Button {
                                 flipUpsideDown.toggle()
                                 Haptics.light()
@@ -304,25 +350,62 @@ struct SplatViewerView: View {
         }
     }
 
+    private var badgeText: String {
+        switch loadState {
+        case .loading: return "読み込み中…"
+        case .gaussian: return "実レンダリング(Metal Gaussian Splatting)"
+        case .points: return "簡易プレビュー(点群)"
+        case .metadataOnly, .failed: return "プレビュー未対応"
+        }
+    }
+
+    private var showsFlipButton: Bool {
+        switch loadState {
+        case .gaussian, .points: return true
+        case .loading, .metadataOnly, .failed: return false
+        }
+    }
+
     private func load() async {
-        switch SplatRendererAvailability.availability(for: asset) {
-        case .metadataOnly(let reason):
+        if case .metadataOnly(let reason) = SplatRendererAvailability.availability(for: asset) {
             loadState = .metadataOnly(reason)
-        case .realRendering, .pointCloudPreview:
-            let url = asset.fileURL
-            let fileType = asset.fileType
+            return
+        }
+        let url = asset.fileURL
+        let fileType = asset.fileType
+
+        // まず Metal 実レンダリング用の Gaussian データとして読む。
+        // 3DGS 属性がない PLY などは点群プレビューへフォールバック。
+        if MetalSplatSupport.isAvailable {
             do {
                 let cloud = try await Task.detached(priority: .userInitiated) {
-                    try SplatPointCloudLoader.load(url: url, fileType: fileType)
+                    try GaussianSplatLoader.load(url: url, fileType: fileType)
                 }.value
-                if cloud.positions.isEmpty {
-                    loadState = .failed("点が見つかりませんでした")
+                if cloud.count > 0 {
+                    loadState = .gaussian(cloud)
                 } else {
-                    loadState = .loaded(cloud)
+                    await loadPointCloud(url: url, fileType: fileType, note: "スプラットが空だったため点群表示にフォールバックしました")
                 }
             } catch {
-                loadState = .failed(error.localizedDescription)
+                await loadPointCloud(url: url, fileType: fileType, note: error.localizedDescription)
             }
+        } else {
+            await loadPointCloud(url: url, fileType: fileType, note: nil)
+        }
+    }
+
+    private func loadPointCloud(url: URL, fileType: SplatFileType, note: String?) async {
+        do {
+            let cloud = try await Task.detached(priority: .userInitiated) {
+                try SplatPointCloudLoader.load(url: url, fileType: fileType)
+            }.value
+            if cloud.positions.isEmpty {
+                loadState = .failed("点が見つかりませんでした")
+            } else {
+                loadState = .points(cloud, note: note)
+            }
+        } catch {
+            loadState = .failed(error.localizedDescription)
         }
     }
 }

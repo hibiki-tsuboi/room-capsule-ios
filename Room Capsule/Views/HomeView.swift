@@ -7,8 +7,9 @@ struct HomeView: View {
     @State private var showScan = false
     @State private var showSettings = false
     @State private var deletionTarget: RoomCapsule?
-    /// 起動引数 -autoPreview での動作確認用(シミュレータ検証向け)
+    /// 起動引数 -autoPreview / -autoSplat での動作確認用(シミュレータ検証向け)
     @State private var showDebugPreview = false
+    @State private var debugSplatAsset: SplatAsset?
 
     var body: some View {
         NavigationStack {
@@ -72,9 +73,19 @@ struct HomeView: View {
                 RoomImmersivePreviewView(capsuleID: first.id, versionID: nil)
             }
         }
+        .fullScreenCover(item: $debugSplatAsset) { asset in
+            SplatViewerView(asset: asset)
+        }
         .onAppear {
             if ProcessInfo.processInfo.arguments.contains("-autoPreview") {
                 showDebugPreview = true
+            }
+            if ProcessInfo.processInfo.arguments.contains("-autoSplat") {
+                let capsule = store.capsules.first ?? store.addDemoCapsule()
+                if let version = capsule.latestVersion {
+                    debugSplatAsset = version.splatAsset
+                        ?? (try? SampleSplatFactory.generateAndAttach(capsuleID: capsule.id, versionID: version.id, store: store))
+                }
             }
         }
         .confirmationDialog(

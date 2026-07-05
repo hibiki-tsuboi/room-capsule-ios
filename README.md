@@ -30,6 +30,7 @@ xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule
 
 - `-seedDemo` … 初回起動時にデモ部屋を自動投入(データが空のときのみ)
 - `-autoPreview` … 起動直後に最初のカプセルの 3D プレビューを自動表示(動作確認用)
+- `-autoSplat` … サンプル Splat を生成・添付して実レンダリングビューアを自動表示(動作確認用)
 
 ## 使い方
 
@@ -47,9 +48,14 @@ xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule
 
 ## Gaussian Splatting の状態
 
-- `.ply` / `.splat` / `.spz` の**インポート・保存・バージョン紐づけ・ビューアは実装済み**。
-- このビルドの表示は**点群による簡易プレビュー**です(`.ply` は ASCII / binary_little_endian、3DGS の `f_dc_*` 色対応。`.splat` は 32 バイトレコード対応。`.spz` は gzip 展開未実装のためメタデータ表示のみ)。
-- レンダラーは `SplatRenderable` プロトコルで抽象化されており(`SplatRendererRegistry.active`)、将来 Metal / RealityKit 製の本物の Gaussian Splatting レンダラーに**アプリ本体を変更せず差し替え可能**です。
+- **Metal による実レンダリングを実装済み**(`Shaders/GaussianSplat.metal` + `MetalSplatView`)。
+  - 3D 共分散(Σ = R·diag(s²)·Rᵀ)は読み込み時に CPU で事前計算し、GPU で毎フレーム 2D へ投影 → 固有分解した楕円クアッドをインスタンス描画。
+  - 奥→手前のアルファ合成順は 16bit カウンティングソートで作り、カメラが一定以上回転したときだけバックグラウンドで再ソート。
+  - 色は SH の DC 成分のみ(視線依存の高次 SH は未対応)。
+- 対応形式: `.splat`(32 バイトレコード)と 3DGS の `.ply`(`scale_0..2` / `rot_0..3` / `opacity` / `f_dc_*`、ASCII / binary_little_endian)。
+- フォールバック: 3DGS 属性のない普通の `.ply` 点群は SceneKit の**点群プレビュー**表示、`.spz` は gzip 展開未実装のためメタデータ表示のみ。
+- Splat 管理画面の「**サンプル Splat を生成**」で、手続き生成したサンプルルームの `.splat` を作ってその場で実レンダリングを体験できます(実データがなくても OK)。
+- レンダラーは `SplatRenderable` プロトコルで抽象化されており(`SplatRendererRegistry.active`)、別実装への差し替えも可能です。
 
 ## アーキテクチャ
 
@@ -60,8 +66,15 @@ Room Capsule/
 │   ├── RoomCapsuleStore.swift      JSON + Documents のローカル永続化ストア(ObservableObject)
 │   ├── DemoRoomFactory.swift       デモ部屋(2 バージョン・ピン・ゴースト)生成
 │   ├── CapturedRoomConverter.swift RoomPlan CapturedRoom → 簡易ジオメトリ変換
-│   ├── SplatImportService.swift / SplatPointCloudLoader.swift / SplatRendering.swift
+│   ├── SplatImportService.swift    Splat ファイル取り込み
+│   ├── GaussianSplatLoader.swift   .splat / 3DGS .ply → 共分散付き Gaussian データ
+│   ├── MetalSplatView.swift        Metal 実レンダラー(MTKView + 深度ソート)
+│   ├── SplatPointCloudLoader.swift PLY 共通パーサ + 点群フォールバック
+│   ├── SplatRendering.swift        レンダラー抽象化(SplatRenderable / Registry)
+│   ├── SampleSplatFactory.swift    サンプルルーム .splat の手続き生成
 │   └── AppFiles.swift              Documents 相対パス管理
+├── Shaders/
+│   └── GaussianSplat.metal         楕円ガウス投影シェーダ
 ├── AR/
 │   ├── RoomEntityFactory.swift     簡易ジオメトリ → RealityKit エンティティ(全表示モード共通)
 │   └── ARSupport.swift             対応判定・ハプティクス・タップ選択
@@ -77,7 +90,7 @@ Room Capsule/
 
 ## 制限事項
 
-- Gaussian Splatting の実レンダリング(楕円ガウス描画)は未実装(上記のとおり差し替え可能な構造のみ)。
+- Gaussian Splatting の色は SH の DC 成分のみ(視線依存の反射などは出ない)。高速にカメラを回すと一瞬だけ合成順が古いことがある(非同期ソートのため)。
 - `.spz` はプレビュー不可(メタデータ表示のみ)。
 - RoomPlan スキャンの実機確認は LiDAR 端末が必要(シミュレータではフォールバックを確認済み)。
 - Before / After は透明度クロスフェード(形状補間はしない)。
@@ -93,7 +106,7 @@ Room Capsule/
 
 ## 今後の改善アイデア
 
-- Metal での Gaussian Splatting 実レンダラー実装(`SplatRenderable` 準拠で差し替え)
+- Gaussian Splatting の高次 SH(視線依存色)対応と `.spz` の gzip 展開
 - USDZ を読み込んだ高品質ミニチュア表示(現在は簡易ジオメトリのみ)
 - メモピンの AR 画面での直接配置(現在は 3D プレビューで配置)
 - ゴースト家具のドラッグ移動(現在はスライダー編集)

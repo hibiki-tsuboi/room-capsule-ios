@@ -32,7 +32,7 @@ xcrun simctl install booted "$BUILT_DIR/Room Capsule.app"
 xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule -seedDemo
 ```
 
-Debug launch arguments: `-seedDemo` (auto-add demo room when store is empty), `-autoPreview` (open the first capsule's 3D preview at launch — smoke-tests the RealityKit stack in the simulator).
+Debug launch arguments: `-seedDemo` (auto-add demo room when store is empty), `-autoPreview` (open the first capsule's 3D preview at launch — smoke-tests the RealityKit stack in the simulator), `-autoSplat` (generate/attach a sample .splat and open the Metal splat viewer — smoke-tests the Gaussian Splatting stack).
 
 There are no test targets yet. Once one exists, run tests with `xcodebuild ... test` and `-only-testing:<TestTarget>/<TestClass>/<testMethod>` for a single test.
 
@@ -44,11 +44,12 @@ There are no test targets yet. Once one exists, run tests with `xcodebuild ... t
 - `Services/CapturedRoomConverter.swift` — RoomPlan `CapturedRoom` → `SimplifiedRoomGeometry`. All rendering derives from the simplified geometry (never from RoomPlan meshes), so every screen works with demo data on the simulator.
 - `AR/RoomEntityFactory.swift` — builds the RealityKit entity tree for a room in a given `RoomDisplayMode` (model/dimensions/xray/furnitureOnly/structureOnly/memo/photo/wireframe). Custom components `RoomPartComponent` (tap → inspector info) and `BaseAppearanceComponent` (restores materials; `applyGlobalOpacity` drives the full-scale opacity slider and Before/After crossfade). Components are registered in `Room_CapsuleApp.init`.
 - `AR/ARSupport.swift` — `ARCapabilities` (AR/RoomPlan availability; both false in simulator → fallback UIs), `Haptics`, `RoomSelectionManager` (shared tap-select + highlight).
-- `Services/Splat*.swift` — importer (copies files into Documents), point-cloud parser (.splat records, PLY ascii/binary incl. 3DGS `f_dc_*` colors), and the renderer abstraction (`SplatRenderable` / `SplatRendererRegistry.active`) rendered as a SceneKit point cloud. Real Gaussian Splatting rendering is intentionally not implemented; swap the registry entry when adding a Metal renderer.
+- `Services/Splat*.swift` + `Shaders/GaussianSplat.metal` — real Gaussian Splatting rendering via Metal. `GaussianSplatLoader` parses .splat / 3DGS .ply (scale/rot/opacity/f_dc) and precomputes 3D covariances on the CPU; `MetalSplatView` (MTKView, `SplatMetalRenderer`) projects them to screen-space ellipses in the vertex shader and alpha-blends back-to-front using an async 16-bit counting sort (`SplatDepthSorter`, re-sorted when the camera turns ~2.5°). Plain PLYs without 3DGS attributes fall back to the SceneKit point cloud (`SplatPointCloudLoader`, which also hosts the shared `PLYHeader` parser). `SampleSplatFactory` procedurally generates a sample room .splat (also used by `-autoSplat`). The renderer abstraction is `SplatRenderable` / `SplatRendererRegistry.active`.
 - `Views/` — one file per screen. AR screens (`MiniatureARView`, `FullScaleARView`, `PortalARView`) each wrap an `ARView` in a `UIViewRepresentable` whose Coordinator owns placement/gestures and rebuilds the room entity when a content hash (geometry+pins+ghosts+mode) changes. `RoomImmersivePreviewView` is the non-AR orbit-camera fallback used everywhere (also as the portal "inside" view with `startsInside: true`).
 
 ## Gotchas
 
+- Compiling `.metal` files requires the Metal Toolchain component (`xcodebuild -downloadComponent MetalToolchain`) — already installed on this machine (Xcode 26 ships without it).
 - Build settings use `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY`: every file must explicitly import what it uses (e.g. `import Combine` for `ObservableObject/@Published`, `import UIKit` for `UIColor`).
 - `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` is on; off-main work (e.g. `SplatPointCloudLoader`) is marked `nonisolated` and called through `Task.detached`.
 - Deployment target is iOS 26.0 (the developer's devices run iOS 26; 26.0 rather than the template's 26.5 so any 26.x point release can install). Don't raise it to 26.5 without asking; lowering to 17.0 is known to compile cleanly if broader device support is ever needed.
