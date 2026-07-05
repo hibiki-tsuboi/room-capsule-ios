@@ -6,27 +6,23 @@
 //
 
 import SwiftUI
-import SwiftData
 
 @main
 struct Room_CapsuleApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+    @StateObject private var store: RoomCapsuleStore
 
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    init() {
+        // カスタムコンポーネントは Entity 生成前に登録が必要
+        RoomEntityFactory.registerComponents()
+        _store = StateObject(wrappedValue: RoomCapsuleStore())
+    }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            HomeView()
+                .environmentObject(store)
+                .preferredColorScheme(.dark)
+                .tint(Theme.accentCyan)
         }
-        .modelContainer(sharedModelContainer)
     }
 }

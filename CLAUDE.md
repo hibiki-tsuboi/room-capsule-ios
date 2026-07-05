@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Room Capsule is an iOS app (SwiftUI + SwiftData), currently at the freshly-generated Xcode template stage. Paths contain spaces ("Room Capsule"), so always quote them in shell commands.
+Room Capsule is an iOS app (SwiftUI + RealityKit + ARKit + RoomPlan) that scans rooms with RoomPlan and replays them as AR miniatures, full-scale AR, portals, 2D floor plans, and Gaussian Splatting previews. Paths contain spaces ("Room Capsule"), so always quote them in shell commands.
+
+The Xcode project uses `PBXFileSystemSynchronizedRootGroup` (objectVersion 77): any file added under `Room Capsule/` is automatically part of the target — no pbxproj editing needed for new files.
 
 ## Commands
 
@@ -12,35 +14,47 @@ Build for the simulator:
 
 ```sh
 xcodebuild -project "Room Capsule.xcodeproj" -scheme "Room Capsule" \
-  -destination 'platform=iOS Simulator,name=iPhone 15 Pro' build
+  -destination 'platform=iOS Simulator,name=iPhone 15 Pro,OS=17.0' build
 ```
+
+(Always pass `OS=17.0` — bare `name=iPhone 15 Pro` sometimes fails to match on this machine.)
 
 Run the app in the simulator (after building):
 
 ```sh
 xcrun simctl boot "iPhone 15 Pro"  # if not already booted
-xcrun simctl install booted <path-to-built-.app>
-xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule
+# IMPORTANT: resolve the .app via -showBuildSettings (multiple DerivedData dirs exist;
+# a bare `find` may pick a stale template build)
+BUILT_DIR=$(xcodebuild -project "Room Capsule.xcodeproj" -scheme "Room Capsule" \
+  -destination 'platform=iOS Simulator,name=iPhone 15 Pro,OS=17.0' \
+  -showBuildSettings build 2>/dev/null | grep -m1 BUILT_PRODUCTS_DIR | sed 's/.*= //')
+xcrun simctl install booted "$BUILT_DIR/Room Capsule.app"
+xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule -seedDemo
 ```
 
-There are no test targets yet. Once one exists, run tests with:
+Debug launch arguments: `-seedDemo` (auto-add demo room when store is empty), `-autoPreview` (open the first capsule's 3D preview at launch — smoke-tests the RealityKit stack in the simulator).
 
-```sh
-xcodebuild -project "Room Capsule.xcodeproj" -scheme "Room Capsule" \
-  -destination 'platform=iOS Simulator,name=iPhone 15 Pro' test
-```
-
-To run a single test, add `-only-testing:<TestTarget>/<TestClass>/<testMethod>`.
+There are no test targets yet. Once one exists, run tests with `xcodebuild ... test` and `-only-testing:<TestTarget>/<TestClass>/<testMethod>` for a single test.
 
 ## Architecture
 
-- `Room Capsule/Room_CapsuleApp.swift` — `@main` entry point. Creates the shared SwiftData `ModelContainer` (schema currently: `Item`) and injects it into the view hierarchy via `.modelContainer()`.
-- `Room Capsule/Item.swift` — the sole `@Model` SwiftData class. New persistent models must be added to the `Schema([...])` in `Room_CapsuleApp.swift`.
-- `Room Capsule/ContentView.swift` — root view; uses `@Query` to fetch models and `@Environment(\.modelContext)` for inserts/deletes. Previews use an in-memory model container.
+- `Models/RoomModels.swift` — Codable value types: `RoomCapsule` (name + versions + memo pins + furniture ghosts), `RoomScanVersion`, `SimplifiedRoomGeometry` (walls/openings/furniture/floor as positioned boxes: position + rotationY + size), pins, ghosts. `SIMD3<Float>` is Codable as-is. File paths are stored **relative to Documents** (see `AppFiles`).
+- `Models/SplatModels.swift` — `SplatAsset`, `SplatFileType` (.ply/.splat/.spz).
+- `Services/RoomCapsuleStore.swift` — the single `ObservableObject` store (injected via `.environmentObject`). Persistence is JSON (`Documents/RoomCapsules/capsules.json`) + per-capsule file directories; **not** SwiftData. All mutations go through store methods which persist immediately. Thumbnails are rendered from `FloorPlanCanvas` via `ImageRenderer`.
+- `Services/CapturedRoomConverter.swift` — RoomPlan `CapturedRoom` → `SimplifiedRoomGeometry`. All rendering derives from the simplified geometry (never from RoomPlan meshes), so every screen works with demo data on the simulator.
+- `AR/RoomEntityFactory.swift` — builds the RealityKit entity tree for a room in a given `RoomDisplayMode` (model/dimensions/xray/furnitureOnly/structureOnly/memo/photo/wireframe). Custom components `RoomPartComponent` (tap → inspector info) and `BaseAppearanceComponent` (restores materials; `applyGlobalOpacity` drives the full-scale opacity slider and Before/After crossfade). Components are registered in `Room_CapsuleApp.init`.
+- `AR/ARSupport.swift` — `ARCapabilities` (AR/RoomPlan availability; both false in simulator → fallback UIs), `Haptics`, `RoomSelectionManager` (shared tap-select + highlight).
+- `Services/Splat*.swift` — importer (copies files into Documents), point-cloud parser (.splat records, PLY ascii/binary incl. 3DGS `f_dc_*` colors), and the renderer abstraction (`SplatRenderable` / `SplatRendererRegistry.active`) rendered as a SceneKit point cloud. Real Gaussian Splatting rendering is intentionally not implemented; swap the registry entry when adding a Metal renderer.
+- `Views/` — one file per screen. AR screens (`MiniatureARView`, `FullScaleARView`, `PortalARView`) each wrap an `ARView` in a `UIViewRepresentable` whose Coordinator owns placement/gestures and rebuilds the room entity when a content hash (geometry+pins+ghosts+mode) changes. `RoomImmersivePreviewView` is the non-AR orbit-camera fallback used everywhere (also as the portal "inside" view with `startsInside: true`).
 
-Persistence is on-disk SwiftData (`isStoredInMemoryOnly: false`); there is no schema migration setup, so changing `@Model` properties can crash existing installs unless the app is reinstalled or a migration plan is added.
+## Gotchas
 
+- Build settings use `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY`: every file must explicitly import what it uses (e.g. `import Combine` for `ObservableObject/@Published`, `import UIKit` for `UIColor`).
+- `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` is on; off-main work (e.g. `SplatPointCloudLoader`) is marked `nonisolated` and called through `Task.detached`.
+- Deployment target is iOS 17.0 (deliberately lowered from the template's 26.5 for device compatibility; RoomPlan floor APIs need ≥17).
+- RoomPlan code must stay behind `#if canImport(RoomPlan)` with runtime `RoomCaptureSession.isSupported` checks; `RoomCaptureViewDelegate` requires NSCoding, hence the `UIViewController` host in `RoomCaptureScanView.swift`.
+- Never break the demo-mode path: every feature must be reachable in the simulator via `DemoRoomFactory` data.
 
 ## Language rules
 - Always answer in Japanese.
-
+- UI strings are Japanese.
