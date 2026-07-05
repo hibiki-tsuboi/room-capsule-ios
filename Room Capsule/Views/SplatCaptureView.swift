@@ -6,8 +6,8 @@ import simd
 
 // MARK: - LiDAR 簡易スプラットスキャン画面
 
-/// LiDAR で部屋を「色付きの点」としてスキャンし、.splat としてバージョンに保存する。
-/// 外部アプリなしで写真っぽい自分の部屋を作れる(品質は学習済み 3DGS より簡易)。
+/// LiDAR で部屋を「面に沿った色付きスプラット」としてスキャンし、.splat として保存する。
+/// 法線推定つきの扁平ガウスで書き出すため、面が連続して見える(学習は行わない)。
 struct SplatCaptureView: View {
     @EnvironmentObject private var store: RoomCapsuleStore
     @Environment(\.dismiss) private var dismiss
@@ -25,8 +25,8 @@ struct SplatCaptureView: View {
             if !LiDARSplatAccumulator.isSupported {
                 CapsuleBackground()
                 ARUnavailableCard(
-                    title: "この端末では簡易スキャンできません",
-                    message: "簡易スプラットスキャンには LiDAR 搭載の iPhone / iPad(Pro 系)が必要です。Scaniverse などで作った .ply / .splat の取り込みは引き続き使えます。",
+                    title: "この端末ではスキャンできません",
+                    message: "LiDAR スプラットスキャンには LiDAR 搭載の iPhone / iPad(Pro 系)が必要です。Scaniverse などで作った .ply / .splat の取り込みは引き続き使えます。",
                     actionTitle: "閉じる"
                 ) {
                     dismiss()
@@ -44,15 +44,15 @@ struct SplatCaptureView: View {
                 VStack {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("部屋をゆっくり見回して、空間を点で塗りつぶしてください")
+                            Text("部屋をゆっくり見回して、面を塗りつぶしてください")
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(.white)
                             HStack(spacing: 10) {
-                                Label("\(pointCount.formatted()) 点", systemImage: "circle.dotted.circle")
+                                Label("\(pointCount.formatted()) スプラット", systemImage: "circle.dotted.circle")
                                     .font(.caption2)
                                     .foregroundStyle(Theme.accentCyan)
                                     .monospacedDigit()
-                                Text("近くの面ほど密になります")
+                                Text("近づいて撮るほど色が鮮明になります")
                                     .font(.caption2)
                                     .foregroundStyle(Color.white.opacity(0.5))
                             }
@@ -85,8 +85,8 @@ struct SplatCaptureView: View {
                                 .frame(maxWidth: 240)
                         }
                         .buttonStyle(PrimaryButtonStyle())
-                        .disabled(pointCount < 3_000)
-                        .opacity(pointCount < 3_000 ? 0.5 : 1)
+                        .disabled(pointCount < 8_000)
+                        .opacity(pointCount < 8_000 ? 0.5 : 1)
                         .padding(.bottom, 24)
                     }
                 }
@@ -106,7 +106,7 @@ struct SplatCaptureView: View {
         do {
             _ = try SplatImportService.attachSplatData(
                 data,
-                fileName: "簡易スキャン.splat",
+                fileName: "LiDARスキャン.splat",
                 capsuleID: capsuleID,
                 versionID: versionID,
                 store: store

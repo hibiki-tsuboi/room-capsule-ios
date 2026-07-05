@@ -61,7 +61,7 @@ struct SplatImportView: View {
                         Button {
                             showCapture = true
                         } label: {
-                            Label("この部屋を簡易スキャン(LiDAR)", systemImage: "camera.metering.multispot")
+                            Label("この部屋をスプラット化(LiDAR)", systemImage: "camera.metering.multispot")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(PrimaryButtonStyle())
@@ -152,7 +152,7 @@ struct SplatImportView: View {
             Label("写真っぽい 3D(Gaussian Splatting)", systemImage: "sparkles")
                 .font(.headline)
                 .foregroundStyle(.white)
-            Text("「簡易スキャン」なら LiDAR で色付きの点を集めて、この場で自分の部屋を Splat 化できます。より高品質にしたい場合は Scaniverse などで作った .ply / .splat を取り込んでください。")
+            Text("「スプラット化」は LiDAR で面の向きまで推定しながら、この場で自分の部屋を Splat 化します。学習ベースの最高品質が欲しい場合は Scaniverse などで作った .ply / .splat を取り込んでください。")
                 .font(.subheadline)
                 .foregroundStyle(Color.white.opacity(0.7))
             Label("このビルドは Metal による Gaussian Splatting 実レンダリングに対応しています(3DGS 属性のない .ply は点群表示、.spz は未対応)。", systemImage: "sparkles")
