@@ -135,6 +135,14 @@ struct HomeView: View {
         } message: {
             Text("この部屋のスキャン・メモ・写真・Splat データはすべてこの iPhone から完全に削除されます。")
         }
+        .alert("保存データを読み込めませんでした", isPresented: Binding(
+            get: { store.loadFailureNotice != nil },
+            set: { if !$0 { store.clearLoadFailureNotice() } }
+        )) {
+            Button("OK", role: .cancel) { store.clearLoadFailureNotice() }
+        } message: {
+            Text(store.loadFailureNotice ?? "")
+        }
     }
 
     private var header: some View {

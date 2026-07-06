@@ -258,6 +258,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Room Capsule";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSCameraUsageDescription = "部屋をスキャンして AR 表示するためにカメラを使用します。";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "撮影したミニチュアの画像を写真に保存するために使用します。";
@@ -297,6 +298,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Room Capsule";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSCameraUsageDescription = "部屋をスキャンして AR 表示するためにカメラを使用します。";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "撮影したミニチュアの画像を写真に保存するために使用します。";

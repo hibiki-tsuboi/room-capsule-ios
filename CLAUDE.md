@@ -29,7 +29,7 @@ BUILT_DIR=$(xcodebuild -project "Room Capsule.xcodeproj" -scheme "Room Capsule" 
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.0' \
   -showBuildSettings build 2>/dev/null | grep -m1 BUILT_PRODUCTS_DIR | sed 's/.*= //')
 xcrun simctl install booted "$BUILT_DIR/Room Capsule.app"
-xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule -seedDemo
+xcrun simctl launch booted jp.hibiki.roomcapsule -seedDemo
 ```
 
 Debug launch arguments: `-seedDemo` (auto-add demo room when store is empty), `-autoPreview` (open the first capsule's 3D preview at launch — smoke-tests the RealityKit stack in the simulator), `-autoSplat` (generate/attach a sample .splat and open the Metal splat viewer — smoke-tests the Gaussian Splatting stack), `-autoSplatAR` (same but opens the Splat AR screen; shows the AR-unavailable fallback in the simulator), `-autoSplatCapture` (open the LiDAR splat-capture screen; LiDAR-unavailable fallback in the simulator), `-previewMode <rawValue>` (initial display mode for `-autoPreview`, e.g. `scanModel`), `-autoDetail` (push the first capsule's detail screen at launch).

@@ -29,7 +29,7 @@ xcodebuild -project "Room Capsule.xcodeproj" -scheme "Room Capsule" \
 
 xcrun simctl boot "iPhone 17 Pro"   # 未起動なら
 xcrun simctl install booted <ビルド成果物の Room Capsule.app>
-xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule
+xcrun simctl launch booted jp.hibiki.roomcapsule
 ```
 
 開発用の起動引数:

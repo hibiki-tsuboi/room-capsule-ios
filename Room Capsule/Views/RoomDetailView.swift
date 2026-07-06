@@ -47,6 +47,7 @@ struct RoomDetailView: View {
     @State private var showRename = false
     @State private var renameText = ""
     @State private var showDeleteConfirm = false
+    @State private var versionDeletionTarget: RoomScanVersion?
     @State private var showTimelineAlert = false
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
@@ -126,6 +127,27 @@ struct RoomDetailView: View {
             Button("キャンセル", role: .cancel) {}
         } message: {
             Text("スキャン・メモ・写真・Splat データはすべてこの iPhone から完全に削除されます。")
+        }
+        .confirmationDialog(
+            "バージョン「\(versionDeletionTarget?.name ?? "")」を削除しますか?",
+            isPresented: Binding(
+                get: { versionDeletionTarget != nil },
+                set: { if !$0 { versionDeletionTarget = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("スキャンデータごと完全に削除", role: .destructive) {
+                if let target = versionDeletionTarget {
+                    store.deleteVersion(versionID: target.id, from: capsuleID)
+                    selectedVersionID = nil
+                }
+                versionDeletionTarget = nil
+            }
+            Button("キャンセル", role: .cancel) {
+                versionDeletionTarget = nil
+            }
+        } message: {
+            Text("このバージョンのスキャン・USDZ・Splat データは完全に削除されます。このバージョン限定のメモピンと家具ゴーストは「全バージョン共通」に変わります。")
         }
         .alert("バージョンが足りません", isPresented: $showTimelineAlert) {
             Button("OK", role: .cancel) {}
@@ -219,8 +241,7 @@ struct RoomDetailView: View {
                 if capsule.versions.count > 1, let version = selectedVersion {
                     Divider()
                     Button(role: .destructive) {
-                        store.deleteVersion(versionID: version.id, from: capsuleID)
-                        selectedVersionID = nil
+                        versionDeletionTarget = version
                     } label: {
                         Label("「\(version.name)」を削除", systemImage: "trash")
                     }

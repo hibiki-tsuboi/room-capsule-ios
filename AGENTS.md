@@ -11,7 +11,7 @@ Rendering is centered on `SimplifiedRoomGeometry`. `RoomCapsuleStore` persists J
 - `xcodebuild -downloadComponent MetalToolchain`: installs the Metal compiler if `.metal` builds fail.
 - `xcodebuild -project "Room Capsule.xcodeproj" -scheme "Room Capsule" -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.0' build`: simulator build; keep explicit `OS=`.
 - `xcrun simctl boot "iPhone 17 Pro"`: boot before install. Resolve `BUILT_PRODUCTS_DIR` with `xcodebuild ... -showBuildSettings`; broad `find` may pick stale products.
-- `xcrun simctl launch booted jp.hibiki.roomcapsule.Room-Capsule -seedDemo`: launches with demo data.
+- `xcrun simctl launch booted jp.hibiki.roomcapsule -seedDemo`: launches with demo data.
 - Useful launch arguments include `-seedDemo`, `-autoPreview`, `-autoSplat*`, `-autoSplatCapture`, `-autoDetail`, and `-previewMode scanModel`.
 
 There are no test targets yet. When one is added, use `xcodebuild ... test`; add `-only-testing:...` for focused runs.

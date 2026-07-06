@@ -23,6 +23,8 @@ enum RoomCapsuleStoreError: LocalizedError {
 @MainActor
 final class RoomCapsuleStore: ObservableObject {
     @Published private(set) var capsules: [RoomCapsule] = []
+    /// capsules.json が読めなかったときの通知文(退避先の案内)。表示後に clearLoadFailureNotice() で消す
+    @Published private(set) var loadFailureNotice: String?
 
     init() {
         AppFiles.ensureDirectory(AppFiles.capsulesRootURL)
@@ -36,11 +38,40 @@ final class RoomCapsuleStore: ObservableObject {
     // MARK: - 永続化(JSON + Documents)
 
     private func load() {
-        guard let data = try? Data(contentsOf: AppFiles.indexFileURL) else { return }
+        let url = AppFiles.indexFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        if let decoded = try? decoder.decode([RoomCapsule].self, from: data) {
-            capsules = decoded
+        do {
+            let data = try Data(contentsOf: url)
+            capsules = try decoder.decode([RoomCapsule].self, from: data)
+        } catch {
+            // 破損した index を次回の persist() で黙って上書きしないよう退避してから、
+            // 空の一覧で再開する(スキャン・写真・Splat の実ファイルは各カプセルのフォルダに残る)
+            if let backupName = backupCorruptIndexFile(url) {
+                loadFailureNotice = "部屋一覧の保存データが破損していたため読み込めませんでした。元のファイルは同じフォルダに「\(backupName)」として退避してあります。スキャンや写真などのファイル自体は削除されていません。"
+            } else {
+                loadFailureNotice = "部屋一覧の保存データが破損していたため読み込めませんでした。"
+            }
+        }
+    }
+
+    func clearLoadFailureNotice() {
+        loadFailureNotice = nil
+    }
+
+    /// 破損した capsules.json をタイムスタンプ付きの別名へ退避する(成功時は退避ファイル名を返す)
+    private func backupCorruptIndexFile(_ url: URL) -> String? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let backupURL = AppFiles.capsulesRootURL
+            .appendingPathComponent("capsules-corrupted-\(formatter.string(from: Date())).json")
+        do {
+            try FileManager.default.moveItem(at: url, to: backupURL)
+            return backupURL.lastPathComponent
+        } catch {
+            return nil
         }
     }
 
