@@ -6,6 +6,13 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDeleteAll = false
 
+    /// 例: "1.0.0 (1)"。ハードコードせず Info.plist の値を表示する
+    private var appVersionText: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "-"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
+        return "\(version) (\(build))"
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -48,8 +55,7 @@ struct SettingsView: View {
                 }
 
                 Section("情報") {
-                    LabeledContent("バージョン", value: "1.0")
-                    LabeledContent("使い方・制限事項", value: "リポジトリの README.md")
+                    LabeledContent("バージョン", value: appVersionText)
                 }
             }
             .scrollContentBackground(.hidden)
