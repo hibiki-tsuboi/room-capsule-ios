@@ -103,7 +103,7 @@ Room Capsule/
 - **サムネイル**は 2D 間取り Canvas を `ImageRenderer` で PNG 化して生成(AR 不要)。
 - **ダークモード固定**: 配色(`Theme`)・白文字はダーク前提でハードコードしており、ルートと各シートで `.preferredColorScheme(.dark)` を指定。システム設定に追従しない意図的な設計。
 - **アプリ設定**: 表示名は「Room Capsule」、App カテゴリはライフスタイル、iPhone は縦向き固定(iPad は全方向)。いずれも pbxproj の `INFOPLIST_KEY_*` で管理。
-- **プライバシー**: すべてローカル保存。クラウド送信・ログインなし。削除ボタンでファイルごと完全削除。
+- **プライバシー**: すべてローカル保存。クラウド送信・ログインなし。削除ボタンでファイルごと完全削除。詳細は[プライバシーポリシー](docs/privacy-policy.md)([公開ページ](https://hibiki-tsuboi.github.io/room-capsule-ios/privacy-policy.html))を参照。
 
 ## 制限事項
 
