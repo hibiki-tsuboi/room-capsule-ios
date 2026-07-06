@@ -165,14 +165,14 @@ struct HomeView: View {
             Text("まだ部屋がありません")
                 .font(.title3.bold())
                 .foregroundStyle(.white)
-            Text("「部屋を保存する」で部屋をスキャンするか、\nデモ部屋でまず体験してみましょう。")
+            Text("部屋をスキャンして、\n最初のカプセルを保存してみましょう。")
                 .font(.subheadline)
                 .foregroundStyle(Color.white.opacity(0.65))
                 .multilineTextAlignment(.center)
             Button {
-                addDemo()
+                showScan = true
             } label: {
-                Label("デモ部屋を追加", systemImage: "wand.and.stars")
+                Label("部屋を保存する", systemImage: "camera.viewfinder")
             }
             .buttonStyle(PrimaryButtonStyle())
         }
@@ -183,22 +183,13 @@ struct HomeView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                showScan = true
-            } label: {
-                Label("部屋を保存する", systemImage: "camera.viewfinder")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(PrimaryButtonStyle())
-
-            Button {
-                addDemo()
-            } label: {
-                Label("デモ部屋", systemImage: "wand.and.stars")
-            }
-            .buttonStyle(SecondaryButtonStyle())
+        Button {
+            showScan = true
+        } label: {
+            Label("部屋を保存する", systemImage: "camera.viewfinder")
+                .frame(maxWidth: .infinity)
         }
+        .buttonStyle(PrimaryButtonStyle())
         .padding(.horizontal)
         .padding(.top, 10)
         .padding(.bottom, 6)
@@ -208,13 +199,6 @@ struct HomeView: View {
     /// -autoPreview 用の初期表示モード(例: -previewMode scanModel)
     private var debugPreviewMode: RoomDisplayMode {
         RoomDisplayMode(rawValue: UserDefaults.standard.string(forKey: "previewMode") ?? "") ?? .model
-    }
-
-    private func addDemo() {
-        withAnimation {
-            _ = store.addDemoCapsule()
-        }
-        Haptics.success()
     }
 }
 

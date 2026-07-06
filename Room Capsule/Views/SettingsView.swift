@@ -57,6 +57,20 @@ struct SettingsView: View {
                 Section("情報") {
                     LabeledContent("バージョン", value: appVersionText)
                 }
+
+                // TODO: リリース前にこのセクションごと削除する(テスト用の仮置き)
+                Section {
+                    Button {
+                        _ = store.addDemoCapsule()
+                        Haptics.success()
+                    } label: {
+                        Label("デモ部屋を追加", systemImage: "wand.and.stars")
+                    }
+                } header: {
+                    Text("開発用(リリース前に削除)")
+                } footer: {
+                    Text("テスト用にデモ部屋を追加します。このセクションはリリース時には表示されません。")
+                }
             }
             .scrollContentBackground(.hidden)
             .background(Theme.backgroundTop)
