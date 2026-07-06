@@ -172,7 +172,7 @@ struct HomeView: View {
             Button {
                 showScan = true
             } label: {
-                Label("部屋を保存する", systemImage: "camera.viewfinder")
+                Label("部屋をスキャン", systemImage: "camera.viewfinder")
             }
             .buttonStyle(PrimaryButtonStyle())
         }
@@ -186,7 +186,7 @@ struct HomeView: View {
         Button {
             showScan = true
         } label: {
-            Label("部屋を保存する", systemImage: "camera.viewfinder")
+            Label("部屋をスキャン", systemImage: "camera.viewfinder")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(PrimaryButtonStyle())
