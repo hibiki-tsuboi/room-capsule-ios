@@ -19,12 +19,34 @@ nonisolated struct SplatPointCloud: Sendable {
 nonisolated enum SplatLoadError: LocalizedError {
     case unsupportedFormat(String)
     case corruptFile(String)
+    case fileTooLarge(fileSize: Int64, limit: Int64)
 
     var errorDescription: String? {
         switch self {
         case .unsupportedFormat(let reason): return "この形式は読み込めません:\(reason)"
         case .corruptFile(let reason): return "ファイルを解析できませんでした:\(reason)"
+        case .fileTooLarge(let fileSize, let limit):
+            let sizeText = ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
+            let limitText = ByteCountFormatter.string(fromByteCount: limit, countStyle: .file)
+            return "ファイルが大きすぎます(\(sizeText))。このビルドでは \(limitText) 以下のファイルを選んでください。"
         }
+    }
+}
+
+nonisolated enum SplatFileLimits {
+    /// Import and preview are in-memory pipelines; keep this conservative for iPhone release builds.
+    static let maxFileSizeBytes: Int64 = 256 * 1024 * 1024
+
+    static func validateSize(of url: URL) throws {
+        let size = try fileSize(of: url)
+        guard size <= maxFileSizeBytes else {
+            throw SplatLoadError.fileTooLarge(fileSize: size, limit: maxFileSizeBytes)
+        }
+    }
+
+    static func fileSize(of url: URL) throws -> Int64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return (attributes[.size] as? NSNumber)?.int64Value ?? 0
     }
 }
 
@@ -76,7 +98,9 @@ nonisolated struct PLYHeader: Sendable {
     }
 
     static func parse(_ data: Data) throws -> PLYHeader {
-        guard let headerEndRange = data.range(of: Data("end_header\n".utf8)) else {
+        let headerEndRange = data.range(of: Data("end_header\r\n".utf8))
+            ?? data.range(of: Data("end_header\n".utf8))
+        guard let headerEndRange else {
             throw SplatLoadError.corruptFile("PLY ヘッダの終端(end_header)が見つかりません")
         }
         guard let headerText = String(data: data[data.startIndex..<headerEndRange.upperBound], encoding: .ascii) else {
@@ -91,7 +115,8 @@ nonisolated struct PLYHeader: Sendable {
         var elementIndex = 0
 
         for rawLine in headerText.split(separator: "\n") {
-            let parts = rawLine.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
             guard !parts.isEmpty else { continue }
             switch parts[0] {
             case "format":
@@ -278,6 +303,7 @@ nonisolated enum SplatPointCloudLoader {
     // MARK: .splat(antimatter15 形式: 32 バイト固定レコード)
 
     private static func loadDotSplat(url: URL) throws -> SplatPointCloud {
+        try SplatFileLimits.validateSize(of: url)
         let data = try Data(contentsOf: url)
         let recordSize = 32
         let total = data.count / recordSize
@@ -314,6 +340,7 @@ nonisolated enum SplatPointCloudLoader {
     // MARK: .ply
 
     private static func loadPLY(url: URL) throws -> SplatPointCloud {
+        try SplatFileLimits.validateSize(of: url)
         let data = try Data(contentsOf: url)
         let header = try PLYHeader.parse(data)
 

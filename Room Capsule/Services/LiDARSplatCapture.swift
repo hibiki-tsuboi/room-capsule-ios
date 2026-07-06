@@ -1,5 +1,5 @@
 import Foundation
-import ARKit
+@preconcurrency import ARKit
 import simd
 
 /// LiDAR 深度 + カメラ映像から「面に沿った扁平ガウス」を集めるスプラットスキャナ。
@@ -9,8 +9,20 @@ import simd
 /// - 1cm ボクセルで重複排除しつつ全深度ピクセルをサンプリング(最大 100 万点)
 /// - 近くで撮れたサンプルを優先する距離重み付きの色平均
 /// - 書き出し時に孤立ボクセル(フローター)を除去
-@MainActor
-final class LiDARSplatAccumulator {
+struct LiDARSplatPreviewChunk: Sendable {
+    var startIndex: Int
+    var previewCount: Int
+    var totalPointCount: Int
+    var positions: [Float]
+    var colors: [UInt8]
+}
+
+struct LiDARSplatExport: Sendable {
+    var data: Data
+    var count: Int
+}
+
+final class LiDARSplatAccumulator: @unchecked Sendable {
 
     /// LiDAR 深度(sceneDepth)が使える端末か
     static var isSupported: Bool {
@@ -42,6 +54,33 @@ final class LiDARSplatAccumulator {
 
     var pointCount: Int { voxels.count }
     var isFull: Bool { voxels.count >= maxPoints }
+
+    func ingestAndMakePreviewChunk(frame: ARFrame, from startIndex: Int) -> LiDARSplatPreviewChunk {
+        ingest(frame: frame)
+        return previewChunk(from: startIndex)
+    }
+
+    func previewChunk(from startIndex: Int) -> LiDARSplatPreviewChunk {
+        let endIndex = min(previewCount, maxPoints)
+        let startIndex = min(max(startIndex, 0), endIndex)
+        guard endIndex > startIndex else {
+            return LiDARSplatPreviewChunk(
+                startIndex: startIndex,
+                previewCount: endIndex,
+                totalPointCount: pointCount,
+                positions: [],
+                colors: []
+            )
+        }
+
+        return LiDARSplatPreviewChunk(
+            startIndex: startIndex,
+            previewCount: endIndex,
+            totalPointCount: pointCount,
+            positions: Array(previewPositions[(startIndex * 3)..<(endIndex * 3)]),
+            colors: Array(previewColors[(startIndex * 4)..<(endIndex * 4)])
+        )
+    }
 
     // MARK: - フレーム取り込み
 
@@ -246,6 +285,11 @@ final class LiDARSplatAccumulator {
             }
         }
         return Data(bytes)
+    }
+
+    func makeSplatExport() -> LiDARSplatExport {
+        let data = makeSplatData()
+        return LiDARSplatExport(data: data, count: data.count / 32)
     }
 
     func reset() {

@@ -27,7 +27,12 @@ enum SampleSplatFactory {
             importedAt: Date(),
             fileSizeBytes: Int64(data.count)
         )
-        store.attachSplat(asset, to: capsuleID, versionID: versionID)
+        do {
+            try store.attachSplat(asset, to: capsuleID, versionID: versionID)
+        } catch {
+            AppFiles.removeIfExists(url)
+            throw error
+        }
         return asset
     }
 

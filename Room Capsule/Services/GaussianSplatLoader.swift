@@ -65,6 +65,7 @@ nonisolated enum GaussianSplatLoader {
     // MARK: .splat(pos float3 / scale float3 / color rgba u8 / rot quat u8)
 
     private static func loadDotSplat(url: URL) throws -> GaussianSplatCloud {
+        try SplatFileLimits.validateSize(of: url)
         let data = try Data(contentsOf: url)
         let recordSize = 32
         let total = data.count / recordSize
@@ -115,6 +116,7 @@ nonisolated enum GaussianSplatLoader {
     // MARK: 3DGS .ply(scale_0..2 / rot_0..3 / opacity / f_dc_0..2)
 
     private static func loadGaussianPLY(url: URL) throws -> GaussianSplatCloud {
+        try SplatFileLimits.validateSize(of: url)
         let data = try Data(contentsOf: url)
         let header = try PLYHeader.parse(data)
 

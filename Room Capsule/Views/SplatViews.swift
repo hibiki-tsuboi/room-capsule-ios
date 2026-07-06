@@ -16,6 +16,7 @@ struct SplatImportView: View {
     @State private var errorMessage: String?
     @State private var viewingAsset: SplatAsset?
     @State private var showCapture = false
+    @State private var isImporting = false
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var selectedVersion: RoomScanVersion? {
@@ -74,7 +75,13 @@ struct SplatImportView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(SecondaryButtonStyle())
-                        .disabled(selectedVersion == nil)
+                        .disabled(selectedVersion == nil || isImporting)
+
+                        if isImporting {
+                            ProgressView("ファイルをコピー中…")
+                                .tint(Theme.accentCyan)
+                                .foregroundStyle(.white)
+                        }
 
                         Button {
                             generateSample()
@@ -107,12 +114,23 @@ struct SplatImportView: View {
             switch result {
             case .success(let urls):
                 guard let url = urls.first, let version = selectedVersion else { return }
-                do {
-                    let asset = try SplatImportService.importFile(from: url, capsuleID: capsuleID)
-                    store.attachSplat(asset, to: capsuleID, versionID: version.id)
-                    Haptics.success()
-                } catch {
-                    errorMessage = error.localizedDescription
+                isImporting = true
+                Task {
+                    do {
+                        let asset = try await Task.detached(priority: .userInitiated) {
+                            try SplatImportService.importFile(from: url, capsuleID: capsuleID)
+                        }.value
+                        do {
+                            try store.attachSplat(asset, to: capsuleID, versionID: version.id)
+                        } catch {
+                            AppFiles.removeIfExists(asset.fileURL)
+                            throw error
+                        }
+                        Haptics.success()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                    isImporting = false
                 }
             case .failure(let error):
                 errorMessage = error.localizedDescription
@@ -222,7 +240,11 @@ struct SplatImportView: View {
                 .buttonStyle(PrimaryButtonStyle())
 
                 Button(role: .destructive) {
-                    store.detachSplat(from: capsuleID, versionID: version.id)
+                    do {
+                        try store.detachSplat(from: capsuleID, versionID: version.id)
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 } label: {
                     Label("削除", systemImage: "trash")
                 }
@@ -267,7 +289,11 @@ struct SplatViewerView: View {
                     .foregroundStyle(.white)
 
             case .gaussian(let cloud):
-                MetalSplatView(cloud: cloud, flipUpsideDown: flipUpsideDown)
+                MetalSplatView(
+                    cloud: cloud,
+                    flipUpsideDown: flipUpsideDown,
+                    onFailure: { loadState = .failed($0) }
+                )
                     .ignoresSafeArea()
 
                 VStack {

@@ -83,26 +83,36 @@ final class LiveSplatPreviewRenderer: NSObject, MTKViewDelegate {
 
     // MARK: - データ追記
 
-    /// アキュムレータの新規スプラットをバッファへ追記する(取り込み tick ごとに呼ぶ)
-    func sync(with accumulator: LiDARSplatAccumulator) {
-        let newCount = min(accumulator.previewCount, capacity)
-        guard newCount > uploadedCount else { return }
-        let start = uploadedCount
+    /// 取り込みキューで作った新規スプラットのスナップショットをバッファへ追記する。
+    func sync(chunk: LiDARSplatPreviewChunk) {
+        let newCount = min(chunk.previewCount, capacity)
+        let chunkStart = min(max(chunk.startIndex, 0), newCount)
+        let sourceOffset = max(uploadedCount - chunkStart, 0)
+        let start = chunkStart + sourceOffset
+        let copyCount = min(
+            newCount - start,
+            chunk.positions.count / 3 - sourceOffset,
+            chunk.colors.count / 4 - sourceOffset
+        )
+        guard copyCount > 0 else { return }
+        let uploadedEnd = start + copyCount
 
-        accumulator.previewPositions.withUnsafeBufferPointer { source in
+        chunk.positions.withUnsafeBufferPointer { source in
+            guard let baseAddress = source.baseAddress else { return }
             positionBuffer.contents()
                 .advanced(by: start * 12)
-                .copyMemory(from: source.baseAddress! + start * 3, byteCount: (newCount - start) * 12)
+                .copyMemory(from: baseAddress + sourceOffset * 3, byteCount: copyCount * 12)
         }
-        accumulator.previewColors.withUnsafeBufferPointer { source in
+        chunk.colors.withUnsafeBufferPointer { source in
+            guard let baseAddress = source.baseAddress else { return }
             colorBuffer.contents()
                 .advanced(by: start * 4)
-                .copyMemory(from: source.baseAddress! + start * 4, byteCount: (newCount - start) * 4)
+                .copyMemory(from: baseAddress + sourceOffset * 4, byteCount: copyCount * 4)
         }
         // 等方ガウスの共分散(対角のみ)
         let variance = sigma * sigma
         let covariancePointer = covarianceBuffer.contents().assumingMemoryBound(to: Float.self)
-        for i in start..<newCount {
+        for i in start..<uploadedEnd {
             let base = i * 6
             covariancePointer[base + 0] = variance
             covariancePointer[base + 1] = 0
@@ -113,11 +123,11 @@ final class LiveSplatPreviewRenderer: NSObject, MTKViewDelegate {
         }
         // 新規分はアクティブなインデックスバッファの末尾に単純追加
         let indexPointer = indexBuffers[activeIndexBuffer].contents().assumingMemoryBound(to: UInt32.self)
-        for i in start..<newCount {
+        for i in start..<uploadedEnd {
             indexPointer[i] = UInt32(i)
         }
-        indexedCounts[activeIndexBuffer] = newCount
-        uploadedCount = newCount
+        indexedCounts[activeIndexBuffer] = uploadedEnd
+        uploadedCount = uploadedEnd
     }
 
     // MARK: - MTKViewDelegate

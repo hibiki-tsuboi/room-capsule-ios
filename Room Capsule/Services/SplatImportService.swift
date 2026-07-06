@@ -3,6 +3,7 @@ import Foundation
 enum SplatImportError: LocalizedError {
     case unsupportedExtension(String)
     case copyFailed
+    case fileTooLarge(fileSize: Int64, limit: Int64)
 
     var errorDescription: String? {
         switch self {
@@ -10,20 +11,25 @@ enum SplatImportError: LocalizedError {
             return "拡張子 .\(ext) は対応していません(.ply / .splat / .spz のみ)"
         case .copyFailed:
             return "ファイルをアプリ内にコピーできませんでした"
+        case .fileTooLarge(let fileSize, let limit):
+            let sizeText = ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
+            let limitText = ByteCountFormatter.string(fromByteCount: limit, countStyle: .file)
+            return "ファイルが大きすぎます(\(sizeText))。\(limitText) 以下のファイルを選んでください。"
         }
     }
 }
 
 /// ファイルピッカーで選ばれた Splat ファイルをアプリ内(Documents)へ
 /// コピーして SplatAsset を作るサービス
-@MainActor
-enum SplatImportService {
+nonisolated enum SplatImportService {
 
     static let supportedExtensions = ["ply", "splat", "spz"]
+    static let maxImportFileSizeBytes: Int64 = SplatFileLimits.maxFileSizeBytes
 
     /// 生成済みの .splat データを保存してバージョンに紐づける
     /// (サンプル生成・LiDAR 簡易スキャンの共通処理)
     @discardableResult
+    @MainActor
     static func attachSplatData(
         _ data: Data,
         fileName displayName: String,
@@ -31,7 +37,10 @@ enum SplatImportService {
         versionID: UUID,
         store: RoomCapsuleStore
     ) throws -> SplatAsset {
-        let dir = AppFiles.ensureDirectory(
+        guard Int64(data.count) <= maxImportFileSizeBytes else {
+            throw SplatImportError.fileTooLarge(fileSize: Int64(data.count), limit: maxImportFileSizeBytes)
+        }
+        let dir = try AppFiles.ensureDirectoryOrThrow(
             AppFiles.capsuleDirectoryURL(capsuleID: capsuleID).appendingPathComponent("splats", isDirectory: true)
         )
         let id = UUID()
@@ -47,7 +56,12 @@ enum SplatImportService {
             importedAt: Date(),
             fileSizeBytes: Int64(data.count)
         )
-        store.attachSplat(asset, to: capsuleID, versionID: versionID)
+        do {
+            try store.attachSplat(asset, to: capsuleID, versionID: versionID)
+        } catch {
+            AppFiles.removeIfExists(url)
+            throw error
+        }
         return asset
     }
 
@@ -65,7 +79,12 @@ enum SplatImportService {
             }
         }
 
-        let dir = AppFiles.ensureDirectory(
+        let size = try SplatFileLimits.fileSize(of: pickedURL)
+        guard size <= maxImportFileSizeBytes else {
+            throw SplatImportError.fileTooLarge(fileSize: size, limit: maxImportFileSizeBytes)
+        }
+
+        let dir = try AppFiles.ensureDirectoryOrThrow(
             AppFiles.capsuleDirectoryURL(capsuleID: capsuleID).appendingPathComponent("splats", isDirectory: true)
         )
         let id = UUID()
@@ -77,9 +96,6 @@ enum SplatImportService {
         } catch {
             throw SplatImportError.copyFailed
         }
-
-        let attributes = try? FileManager.default.attributesOfItem(atPath: destination.path)
-        let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
 
         return SplatAsset(
             id: id,

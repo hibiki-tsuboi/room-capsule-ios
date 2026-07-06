@@ -76,7 +76,8 @@ struct SplatARView: View {
                         flipUpsideDown: flipUpsideDown,
                         miniature: miniature,
                         resetToken: resetToken,
-                        onPlacementChange: { placed = $0 }
+                        onPlacementChange: { placed = $0 },
+                        onRendererFailure: { loadState = .failed($0) }
                     )
                     .ignoresSafeArea()
 
@@ -197,6 +198,7 @@ struct SplatARContainer: UIViewRepresentable {
     var miniature: Bool
     var resetToken: Int
     var onPlacementChange: (Bool) -> Void
+    var onRendererFailure: (String) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -271,7 +273,16 @@ struct SplatARContainer: UIViewRepresentable {
 
         func setup(arView: ARView, mtkView: MTKView) {
             self.arView = arView
-            guard let renderer = try? SplatARRenderer(cloud: parent.cloud) else { return }
+            let renderer: SplatARRenderer
+            do {
+                renderer = try SplatARRenderer(cloud: parent.cloud)
+            } catch {
+                let message = error.localizedDescription
+                DispatchQueue.main.async {
+                    self.parent.onRendererFailure(message)
+                }
+                return
+            }
             renderer.arSession = arView.session
             renderer.flipUpsideDown = parent.flipUpsideDown
             mtkView.device = renderer.device

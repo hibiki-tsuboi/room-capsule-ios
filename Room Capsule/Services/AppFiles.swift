@@ -3,7 +3,7 @@ import Foundation
 /// Documents ディレクトリ以下のファイル配置を一元管理するヘルパー。
 /// モデルには「Documents からの相対パス」だけを保存する
 /// (再インストールやコンテナ移動で絶対パスが変わるため)。
-enum AppFiles {
+nonisolated enum AppFiles {
     static var documentsURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
@@ -33,6 +33,12 @@ enum AppFiles {
     @discardableResult
     static func ensureDirectory(_ url: URL) -> URL {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @discardableResult
+    static func ensureDirectoryOrThrow(_ url: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 

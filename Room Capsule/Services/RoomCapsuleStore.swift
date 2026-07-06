@@ -3,6 +3,20 @@ import Combine
 import SwiftUI
 import UIKit
 
+enum RoomCapsuleStoreError: LocalizedError {
+    case encodeFailed
+    case capsuleNotFound
+    case versionNotFound
+
+    var errorDescription: String? {
+        switch self {
+        case .encodeFailed: return "保存データをエンコードできませんでした"
+        case .capsuleNotFound: return "保存先の部屋が見つかりませんでした"
+        case .versionNotFound: return "保存先のバージョンが見つかりませんでした"
+        }
+    }
+}
+
 /// アプリ全体の永続化ストア。
 /// JSON(capsules.json)+ Documents ディレクトリ保存のシンプル構成。
 /// スキャンデータ・写真・Splat ファイルはすべてローカルにのみ保存する。
@@ -30,18 +44,32 @@ final class RoomCapsuleStore: ObservableObject {
         }
     }
 
-    private func persist() {
+    private func persist() throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(capsules) else { return }
-        AppFiles.ensureDirectory(AppFiles.capsulesRootURL)
-        try? data.write(to: AppFiles.indexFileURL, options: .atomic)
+        let data: Data
+        do {
+            data = try encoder.encode(capsules)
+        } catch {
+            throw RoomCapsuleStoreError.encodeFailed
+        }
+        try AppFiles.ensureDirectoryOrThrow(AppFiles.capsulesRootURL)
+        try data.write(to: AppFiles.indexFileURL, options: .atomic)
     }
 
-    private func touchAndPersist(_ index: Int) {
+    private func persistBestEffort() {
+        try? persist()
+    }
+
+    private func touchAndPersist(_ index: Int) throws {
         capsules[index].updatedAt = Date()
-        persist()
+        try persist()
+    }
+
+    private func touchAndPersistBestEffort(_ index: Int) {
+        capsules[index].updatedAt = Date()
+        persistBestEffort()
     }
 
     func capsule(id: UUID) -> RoomCapsule? {
@@ -51,24 +79,29 @@ final class RoomCapsuleStore: ObservableObject {
     // MARK: - カプセル CRUD
 
     @discardableResult
-    func createCapsule(named name: String) -> RoomCapsule {
+    func createCapsule(named name: String) throws -> RoomCapsule {
         let capsule = RoomCapsule(name: name.isEmpty ? "名前のない部屋" : name)
         capsules.append(capsule)
-        persist()
+        do {
+            try persist()
+        } catch {
+            capsules.removeAll { $0.id == capsule.id }
+            throw error
+        }
         return capsule
     }
 
     func rename(capsuleID: UUID, to name: String) {
         guard let index = capsules.firstIndex(where: { $0.id == capsuleID }), !name.isEmpty else { return }
         capsules[index].name = name
-        touchAndPersist(index)
+        touchAndPersistBestEffort(index)
     }
 
     /// カプセルと、それに紐づく全ファイル(スキャン・写真・Splat)を完全削除する
     func delete(capsuleID: UUID) {
         AppFiles.removeIfExists(AppFiles.capsuleDirectoryURL(capsuleID: capsuleID))
         capsules.removeAll { $0.id == capsuleID }
-        persist()
+        persistBestEffort()
     }
 
     /// すべてのデータを完全削除する(設定画面用)
@@ -77,7 +110,7 @@ final class RoomCapsuleStore: ObservableObject {
             AppFiles.removeIfExists(AppFiles.capsuleDirectoryURL(capsuleID: capsule.id))
         }
         capsules = []
-        persist()
+        persistBestEffort()
     }
 
     // MARK: - デモ部屋
@@ -91,7 +124,7 @@ final class RoomCapsuleStore: ObservableObject {
             capsule.versions[i].thumbnailPath = writeThumbnail(for: capsule.versions[i], capsuleID: capsule.id)
         }
         capsules.append(capsule)
-        persist()
+        persistBestEffort()
         return capsule
     }
 
@@ -105,35 +138,50 @@ final class RoomCapsuleStore: ObservableObject {
         capturedRoomJSON: Data?,
         usdzTempURL: URL?,
         to capsuleID: UUID
-    ) -> RoomScanVersion? {
-        guard let index = capsules.firstIndex(where: { $0.id == capsuleID }) else { return nil }
+    ) throws -> RoomScanVersion {
+        guard let index = capsules.firstIndex(where: { $0.id == capsuleID }) else {
+            throw RoomCapsuleStoreError.capsuleNotFound
+        }
+        let originalCapsules = capsules
+        var writtenURLs: [URL] = []
         var version = RoomScanVersion(
             name: versionName.isEmpty ? "スキャン \(capsules[index].versions.count + 1)" : versionName,
             simplifiedGeometry: geometry
         )
 
-        let versionsDir = AppFiles.ensureDirectory(
+        let versionsDir = try AppFiles.ensureDirectoryOrThrow(
             AppFiles.capsuleDirectoryURL(capsuleID: capsuleID).appendingPathComponent("versions", isDirectory: true)
         )
         if let capturedRoomJSON {
             let fileName = "\(version.id.uuidString).room.json"
             let url = versionsDir.appendingPathComponent(fileName)
-            if (try? capturedRoomJSON.write(to: url, options: .atomic)) != nil {
-                version.roomDataPath = AppFiles.relativePath(capsuleID: capsuleID, "versions", fileName)
-            }
+            try capturedRoomJSON.write(to: url, options: .atomic)
+            writtenURLs.append(url)
+            version.roomDataPath = AppFiles.relativePath(capsuleID: capsuleID, "versions", fileName)
         }
         if let usdzTempURL {
             let fileName = "\(version.id.uuidString).usdz"
             let url = versionsDir.appendingPathComponent(fileName)
             AppFiles.removeIfExists(url)
-            if (try? FileManager.default.moveItem(at: usdzTempURL, to: url)) != nil {
-                version.usdzPath = AppFiles.relativePath(capsuleID: capsuleID, "versions", fileName)
-            }
+            try FileManager.default.moveItem(at: usdzTempURL, to: url)
+            writtenURLs.append(url)
+            version.usdzPath = AppFiles.relativePath(capsuleID: capsuleID, "versions", fileName)
         }
         version.thumbnailPath = writeThumbnail(for: version, capsuleID: capsuleID)
+        if let thumbnailPath = version.thumbnailPath {
+            writtenURLs.append(AppFiles.url(forRelativePath: thumbnailPath))
+        }
 
         capsules[index].versions.append(version)
-        touchAndPersist(index)
+        do {
+            try touchAndPersist(index)
+        } catch {
+            capsules = originalCapsules
+            for url in writtenURLs {
+                AppFiles.removeIfExists(url)
+            }
+            throw error
+        }
         return version
     }
 
@@ -142,7 +190,7 @@ final class RoomCapsuleStore: ObservableObject {
               let vIndex = capsules[index].versions.firstIndex(where: { $0.id == versionID }),
               !name.isEmpty else { return }
         capsules[index].versions[vIndex].name = name
-        touchAndPersist(index)
+        touchAndPersistBestEffort(index)
     }
 
     func deleteVersion(versionID: UUID, from capsuleID: UUID) {
@@ -162,7 +210,7 @@ final class RoomCapsuleStore: ObservableObject {
         for i in capsules[index].furnitureGhosts.indices where capsules[index].furnitureGhosts[i].versionID == versionID {
             capsules[index].furnitureGhosts[i].versionID = nil
         }
-        touchAndPersist(index)
+        touchAndPersistBestEffort(index)
     }
 
     // MARK: - メモピン
@@ -174,7 +222,7 @@ final class RoomCapsuleStore: ObservableObject {
         } else {
             capsules[index].memoPins.append(pin)
         }
-        touchAndPersist(index)
+        touchAndPersistBestEffort(index)
     }
 
     func deletePin(pinID: UUID, in capsuleID: UUID) {
@@ -185,7 +233,7 @@ final class RoomCapsuleStore: ObservableObject {
             }
         }
         capsules[index].memoPins.removeAll { $0.id == pinID }
-        touchAndPersist(index)
+        touchAndPersistBestEffort(index)
     }
 
     // MARK: - 家具ゴースト
@@ -197,35 +245,56 @@ final class RoomCapsuleStore: ObservableObject {
         } else {
             capsules[index].furnitureGhosts.append(ghost)
         }
-        touchAndPersist(index)
+        touchAndPersistBestEffort(index)
     }
 
     func deleteGhost(ghostID: UUID, in capsuleID: UUID) {
         guard let index = capsules.firstIndex(where: { $0.id == capsuleID }) else { return }
         capsules[index].furnitureGhosts.removeAll { $0.id == ghostID }
-        touchAndPersist(index)
+        touchAndPersistBestEffort(index)
     }
 
     // MARK: - Splat
 
-    func attachSplat(_ asset: SplatAsset, to capsuleID: UUID, versionID: UUID) {
+    func attachSplat(_ asset: SplatAsset, to capsuleID: UUID, versionID: UUID) throws {
         guard let index = capsules.firstIndex(where: { $0.id == capsuleID }),
-              let vIndex = capsules[index].versions.firstIndex(where: { $0.id == versionID }) else { return }
-        if let old = capsules[index].versions[vIndex].splatAsset {
+              let vIndex = capsules[index].versions.firstIndex(where: { $0.id == versionID }) else {
+            throw RoomCapsuleStoreError.versionNotFound
+        }
+        let old = capsules[index].versions[vIndex].splatAsset
+        let oldUpdatedAt = capsules[index].updatedAt
+        capsules[index].versions[vIndex].splatAsset = asset
+        do {
+            try touchAndPersist(index)
+        } catch {
+            capsules[index].versions[vIndex].splatAsset = old
+            capsules[index].updatedAt = oldUpdatedAt
+            AppFiles.removeIfExists(asset.fileURL)
+            throw error
+        }
+        if let old {
             AppFiles.removeIfExists(old.fileURL)
         }
-        capsules[index].versions[vIndex].splatAsset = asset
-        touchAndPersist(index)
     }
 
-    func detachSplat(from capsuleID: UUID, versionID: UUID) {
+    func detachSplat(from capsuleID: UUID, versionID: UUID) throws {
         guard let index = capsules.firstIndex(where: { $0.id == capsuleID }),
-              let vIndex = capsules[index].versions.firstIndex(where: { $0.id == versionID }) else { return }
-        if let asset = capsules[index].versions[vIndex].splatAsset {
+              let vIndex = capsules[index].versions.firstIndex(where: { $0.id == versionID }) else {
+            throw RoomCapsuleStoreError.versionNotFound
+        }
+        let asset = capsules[index].versions[vIndex].splatAsset
+        let oldUpdatedAt = capsules[index].updatedAt
+        capsules[index].versions[vIndex].splatAsset = nil
+        do {
+            try touchAndPersist(index)
+        } catch {
+            capsules[index].versions[vIndex].splatAsset = asset
+            capsules[index].updatedAt = oldUpdatedAt
+            throw error
+        }
+        if let asset {
             AppFiles.removeIfExists(asset.fileURL)
         }
-        capsules[index].versions[vIndex].splatAsset = nil
-        touchAndPersist(index)
     }
 
     // MARK: - 写真

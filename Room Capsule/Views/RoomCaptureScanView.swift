@@ -122,6 +122,8 @@ struct SupportedScanView: View {
     @StateObject private var model = ScanSessionModel()
     @State private var roomName = ""
     @State private var versionName = ""
+    @State private var isSaving = false
+    @State private var saveErrorMessage: String?
 
     var body: some View {
         ZStack {
@@ -158,6 +160,14 @@ struct SupportedScanView: View {
                 bottomArea
                     .padding(.bottom, 20)
             }
+        }
+        .alert("保存に失敗しました", isPresented: Binding(
+            get: { saveErrorMessage != nil },
+            set: { if !$0 { saveErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { saveErrorMessage = nil }
+        } message: {
+            Text(saveErrorMessage ?? "")
         }
     }
 
@@ -230,10 +240,11 @@ struct SupportedScanView: View {
                 Button {
                     save(room)
                 } label: {
-                    Label("保存する", systemImage: "checkmark")
+                    Label(isSaving ? "保存中…" : "保存する", systemImage: "checkmark")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PrimaryButtonStyle())
+                .disabled(isSaving)
             }
         }
         .padding(18)
@@ -242,42 +253,56 @@ struct SupportedScanView: View {
     }
 
     private func save(_ room: CapturedRoom) {
-        let capsuleID: UUID
-        if let targetCapsuleID {
-            capsuleID = targetCapsuleID
-        } else {
-            capsuleID = store.createCapsule(named: roomName.isEmpty ? "スキャンした部屋" : roomName).id
-        }
+        guard !isSaving else { return }
+        isSaving = true
+        var createdCapsuleID: UUID?
 
-        let geometry = CapturedRoomConverter.simplifiedGeometry(from: room)
+        do {
+            let capsuleID: UUID
+            if let targetCapsuleID {
+                capsuleID = targetCapsuleID
+            } else {
+                let capsule = try store.createCapsule(named: roomName.isEmpty ? "スキャンした部屋" : roomName)
+                capsuleID = capsule.id
+                createdCapsuleID = capsule.id
+            }
 
-        // RoomPlan の生データ(JSON)と USDZ を可能な範囲で保存する。
-        // USDZ は家具の形状モデル付き(.model)を優先し、失敗したら既定の
-        // パラメトリック出力へフォールバックする(高品質モードの見た目が良くなる)。
-        let capturedRoomJSON = try? JSONEncoder().encode(room)
-        var usdzTempURL: URL? = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(UUID().uuidString).usdz")
-        if let url = usdzTempURL {
-            do {
-                try room.export(to: url, exportOptions: .model)
-            } catch {
+            let geometry = CapturedRoomConverter.simplifiedGeometry(from: room)
+
+            // RoomPlan の生データ(JSON)と USDZ を可能な範囲で保存する。
+            // USDZ は家具の形状モデル付き(.model)を優先し、失敗したら既定の
+            // パラメトリック出力へフォールバックする(高品質モードの見た目が良くなる)。
+            let capturedRoomJSON = try JSONEncoder().encode(room)
+            var usdzTempURL: URL? = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(UUID().uuidString).usdz")
+            if let url = usdzTempURL {
                 do {
-                    try room.export(to: url)
+                    try room.export(to: url, exportOptions: .model)
                 } catch {
-                    usdzTempURL = nil
+                    do {
+                        try room.export(to: url)
+                    } catch {
+                        usdzTempURL = nil
+                    }
                 }
             }
-        }
 
-        store.addScannedVersion(
-            versionName: versionName,
-            geometry: geometry,
-            capturedRoomJSON: capturedRoomJSON,
-            usdzTempURL: usdzTempURL,
-            to: capsuleID
-        )
-        Haptics.success()
-        dismiss()
+            try store.addScannedVersion(
+                versionName: versionName,
+                geometry: geometry,
+                capturedRoomJSON: capturedRoomJSON,
+                usdzTempURL: usdzTempURL,
+                to: capsuleID
+            )
+            Haptics.success()
+            dismiss()
+        } catch {
+            if let createdCapsuleID {
+                store.delete(capsuleID: createdCapsuleID)
+            }
+            isSaving = false
+            saveErrorMessage = error.localizedDescription
+        }
     }
 }
 

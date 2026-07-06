@@ -1,5 +1,5 @@
 import SwiftUI
-import ARKit
+@preconcurrency import ARKit
 import RealityKit
 import Metal
 import MetalKit
@@ -39,6 +39,7 @@ struct SplatCaptureView: View {
                     finishToken: finishToken,
                     previewVisible: previewVisible,
                     onCountChange: { pointCount = $0 },
+                    onFailure: { errorMessage = $0 },
                     onFinished: { data, count in
                         save(data: data, count: count)
                     }
@@ -147,6 +148,7 @@ struct SplatCaptureContainer: UIViewRepresentable {
     var finishToken: Int
     var previewVisible: Bool = true
     var onCountChange: (Int) -> Void
+    var onFailure: (String) -> Void = { _ in }
     var onFinished: (Data, Int) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -200,8 +202,12 @@ struct SplatCaptureContainer: UIViewRepresentable {
         private weak var mtkView: MTKView?
         private var previewRenderer: LiveSplatPreviewRenderer?
         private let accumulator = LiDARSplatAccumulator()
+        private let captureQueue = DispatchQueue(label: "roomcapsule.lidar-splat-capture", qos: .userInitiated)
         private var captureTimer: Timer?
         private var lastFinishToken = 0
+        private var lastPreviewCount = 0
+        private var ingestInFlight = false
+        private var exportInFlight = false
 
         init(_ parent: SplatCaptureContainer) {
             self.parent = parent
@@ -212,14 +218,17 @@ struct SplatCaptureContainer: UIViewRepresentable {
             self.arView = arView
             self.mtkView = mtkView
 
-            if let renderer = try? LiveSplatPreviewRenderer(
-                capacity: accumulator.maxPoints,
-                voxelSize: accumulator.voxelSize
-            ) {
+            do {
+                let renderer = try LiveSplatPreviewRenderer(
+                    capacity: accumulator.maxPoints,
+                    voxelSize: accumulator.voxelSize
+                )
                 renderer.arSession = arView.session
                 mtkView.device = renderer.device
                 mtkView.delegate = renderer
                 previewRenderer = renderer // MTKView.delegate は weak なのでここで保持
+            } catch {
+                parent.onFailure("ライブプレビューを初期化できませんでした: \(error.localizedDescription)")
             }
 
             // 0.12 秒間隔で currentFrame を取り込む(フレームを保持しないので ARKit に優しい)
@@ -242,19 +251,38 @@ struct SplatCaptureContainer: UIViewRepresentable {
         }
 
         private func captureTick() {
+            guard !ingestInFlight, !exportInFlight else { return }
             guard let frame = arView?.session.currentFrame else { return }
-            accumulator.ingest(frame: frame)
-            previewRenderer?.sync(with: accumulator)
-            parent.onCountChange(accumulator.pointCount)
+            ingestInFlight = true
+            let accumulator = accumulator
+            let startIndex = lastPreviewCount
+            captureQueue.async { [frame, accumulator, startIndex] in
+                let chunk = accumulator.ingestAndMakePreviewChunk(frame: frame, from: startIndex)
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.previewRenderer?.sync(chunk: chunk)
+                    self.lastPreviewCount = chunk.previewCount
+                    self.parent.onCountChange(chunk.totalPointCount)
+                    self.ingestInFlight = false
+                }
+            }
         }
 
         func handleFinishTokenIfNeeded() {
             guard parent.finishToken != lastFinishToken else { return }
             lastFinishToken = parent.finishToken
+            guard !exportInFlight else { return }
+            exportInFlight = true
             stop()
-            let count = accumulator.pointCount
-            let data = accumulator.makeSplatData()
-            parent.onFinished(data, count)
+            let accumulator = accumulator
+            captureQueue.async { [accumulator] in
+                let export = accumulator.makeSplatExport()
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.exportInFlight = false
+                    self.parent.onFinished(export.data, export.count)
+                }
+            }
         }
     }
 }

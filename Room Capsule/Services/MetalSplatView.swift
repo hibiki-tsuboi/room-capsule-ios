@@ -452,6 +452,7 @@ final class SplatMetalRenderer: NSObject, MTKViewDelegate {
 struct MetalSplatView: UIViewRepresentable {
     let cloud: GaussianSplatCloud
     var flipUpsideDown: Bool = true
+    var onFailure: (String) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -463,7 +464,8 @@ struct MetalSplatView: UIViewRepresentable {
         view.colorPixelFormat = .bgra8Unorm
         view.preferredFramesPerSecond = 60
 
-        if let renderer = try? SplatMetalRenderer(cloud: cloud) {
+        do {
+            let renderer = try SplatMetalRenderer(cloud: cloud)
             renderer.flipUpsideDown = flipUpsideDown
             view.device = renderer.device
             view.delegate = renderer
@@ -475,6 +477,11 @@ struct MetalSplatView: UIViewRepresentable {
             view.addGestureRecognizer(
                 UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
             )
+        } catch {
+            let message = error.localizedDescription
+            DispatchQueue.main.async {
+                onFailure(message)
+            }
         }
         return view
     }
