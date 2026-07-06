@@ -402,7 +402,7 @@ final class SplatARRenderer: NSObject, MTKViewDelegate {
             scale += (targetScale - scale) * 0.18
         }
 
-        let orientation = view.window?.windowScene?.interfaceOrientation ?? .portrait
+        let orientation = view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait
         let viewportSize = CGSize(width: size.width, height: size.height)
         let projection = frame.camera.projectionMatrix(
             for: orientation, viewportSize: viewportSize, zNear: 0.02, zFar: 80

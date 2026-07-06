@@ -416,7 +416,18 @@ struct RoomDetailView: View {
             if let asset = selectedVersion?.splatAsset {
                 SplatARView(asset: asset)
             } else {
-                ContentUnavailableView("Splat がありません", systemImage: "sparkles")
+                ZStack {
+                    CapsuleBackground()
+                    ContentUnavailableView("Splat がありません", systemImage: "sparkles")
+                    VStack {
+                        HStack {
+                            Spacer()
+                            CloseButton { activeScreen = nil }
+                        }
+                        .padding()
+                        Spacer()
+                    }
+                }
             }
         case .timeline:
             TimelineComparisonView(capsuleID: capsuleID)

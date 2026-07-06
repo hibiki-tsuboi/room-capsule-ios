@@ -149,7 +149,7 @@ final class LiveSplatPreviewRenderer: NSObject, MTKViewDelegate {
             return
         }
 
-        let orientation = view.window?.windowScene?.interfaceOrientation ?? .portrait
+        let orientation = view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait
         let viewportSize = CGSize(width: size.width, height: size.height)
         let projection = frame.camera.projectionMatrix(
             for: orientation, viewportSize: viewportSize, zNear: 0.02, zFar: 60

@@ -310,7 +310,8 @@ struct MemoPinEditorView: View {
                     if let existingPin {
                         store.deletePin(pinID: existingPin.id, in: capsuleID)
                     }
-                    saved = true
+                    // deletePin が消すのは保存済みピンの写真だけ。編集中に追加した
+                    // 未保存の写真は saved を立てず onDisappear の掃除に任せる
                     dismiss()
                 }
                 Button("キャンセル", role: .cancel) {}
