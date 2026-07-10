@@ -12,6 +12,7 @@ struct HomeView: View {
     @State private var debugSplatAsset: SplatAsset?
     @State private var debugSplatARAsset: SplatAsset?
     @State private var debugCaptureTarget: RoomCapsule?
+    @State private var debugTimelineTarget: RoomCapsule?
     @State private var navigationPath = NavigationPath()
 
     var body: some View {
@@ -26,7 +27,8 @@ struct HomeView: View {
                         if store.capsules.isEmpty {
                             emptyState
                         } else {
-                            ForEach(store.capsules) { capsule in
+                            // 直近に触った(スキャンした)部屋が上に来るように
+                            ForEach(store.capsules.sorted(by: { $0.updatedAt > $1.updatedAt })) { capsule in
                                 NavigationLink(value: capsule.id) {
                                     RoomCapsuleCard(capsule: capsule)
                                 }
@@ -44,6 +46,9 @@ struct HomeView: View {
                         Spacer(minLength: 40)
                     }
                     .padding(.horizontal)
+                    // iPad で間延びしないようコンテンツ幅に上限を設けて中央寄せ
+                    .frame(maxWidth: 700)
+                    .frame(maxWidth: .infinity)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -87,7 +92,11 @@ struct HomeView: View {
                 SplatCaptureView(capsuleID: capsule.id, versionID: version.id)
             }
         }
+        .fullScreenCover(item: $debugTimelineTarget) { capsule in
+            TimelineComparisonView(capsuleID: capsule.id)
+        }
         .onAppear {
+            #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-autoPreview") {
                 showDebugPreview = true
             }
@@ -112,6 +121,13 @@ struct HomeView: View {
             if ProcessInfo.processInfo.arguments.contains("-autoSplatCapture") {
                 debugCaptureTarget = store.capsules.first ?? store.addDemoCapsule()
             }
+            if ProcessInfo.processInfo.arguments.contains("-autoTimeline") {
+                debugTimelineTarget = store.capsules.first ?? store.addDemoCapsule()
+            }
+            if ProcessInfo.processInfo.arguments.contains("-autoSettings") {
+                showSettings = true
+            }
+            #endif
         }
         .confirmationDialog(
             "「\(deletionTarget?.name ?? "")」を削除しますか?",
@@ -133,7 +149,7 @@ struct HomeView: View {
                 deletionTarget = nil
             }
         } message: {
-            Text("この部屋のスキャン・メモ・写真・Splat データはすべてこの iPhone から完全に削除されます。")
+            Text("この部屋のスキャンデータや関連ファイルはすべてこの iPhone から完全に削除されます。")
         }
         .alert("保存データを読み込めませんでした", isPresented: Binding(
             get: { store.loadFailureNotice != nil },
@@ -190,6 +206,8 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(PrimaryButtonStyle())
+        .frame(maxWidth: 700)
+        .frame(maxWidth: .infinity)
         .padding(.horizontal)
         .padding(.top, 10)
         .padding(.bottom, 6)
@@ -223,9 +241,13 @@ struct RoomCapsuleCard: View {
                     .foregroundStyle(Color.white.opacity(0.55))
                 HStack(spacing: 12) {
                     StatBadge(systemImage: "clock.arrow.circlepath", text: "\(capsule.versions.count)")
-                    StatBadge(systemImage: "mappin.and.ellipse", text: "\(capsule.memoPins.count)")
-                    StatBadge(systemImage: "sofa", text: "\(capsule.furnitureGhosts.count)")
-                    if capsule.hasSplat {
+                    if FeatureFlags.memoPins {
+                        StatBadge(systemImage: "mappin.and.ellipse", text: "\(capsule.memoPins.count)")
+                    }
+                    if FeatureFlags.furnitureGhosts {
+                        StatBadge(systemImage: "sofa", text: "\(capsule.furnitureGhosts.count)")
+                    }
+                    if FeatureFlags.splat, capsule.hasSplat {
                         StatBadge(systemImage: "sparkles", text: "Splat")
                     }
                 }

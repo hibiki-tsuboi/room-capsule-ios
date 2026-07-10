@@ -46,9 +46,16 @@ enum RoomDisplayMode: String, CaseIterable, Identifiable {
         }
     }
 
-    /// USDZ の有無に応じて選択できるモード一覧
+    /// USDZ の有無と FeatureFlags に応じて選択できるモード一覧
     static func availableModes(hasUSDZ: Bool) -> [RoomDisplayMode] {
-        hasUSDZ ? allCases : allCases.filter { $0 != .scanModel }
+        allCases.filter { mode in
+            switch mode {
+            case .scanModel: return hasUSDZ
+            case .memo: return FeatureFlags.memoPins
+            case .photo: return FeatureFlags.splat
+            default: return true
+            }
+        }
     }
 }
 
@@ -147,6 +154,10 @@ enum RoomEntityFactory {
         mode: RoomDisplayMode = .model,
         usdzURL: URL? = nil
     ) -> Entity {
+        // 導線を隠している機能のデータは描画にも乗せない
+        // (デモ部屋にはピン・ゴーストが入っており、リリースでも非 LiDAR 端末から到達できるため)
+        let pins = FeatureFlags.memoPins ? pins : []
+        let ghosts = FeatureFlags.furnitureGhosts ? ghosts : []
         let root = Entity()
         root.name = "RoomRoot"
         let content = Entity()

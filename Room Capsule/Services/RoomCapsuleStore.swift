@@ -26,13 +26,25 @@ final class RoomCapsuleStore: ObservableObject {
     /// capsules.json が読めなかったときの通知文(退避先の案内)。表示後に clearLoadFailureNotice() で消す
     @Published private(set) var loadFailureNotice: String?
 
+    /// capsules.json のトップレベル封筒。スキーマを変えるときは schemaVersion を上げて
+    /// load() に移行処理を足す。モデルに足す新フィールドはオプショナル(または
+    /// カスタムデコード)にするのが原則 — 合成 Decodable はデフォルト値を使わないため。
+    private struct CapsulesFile: Codable {
+        var schemaVersion: Int
+        var capsules: [RoomCapsule]
+    }
+
+    private static let currentSchemaVersion = 1
+
     init() {
         AppFiles.ensureDirectory(AppFiles.capsulesRootURL)
         load()
+        #if DEBUG
         // UI テスト・シミュレータ確認用: 起動引数でデモ部屋を自動投入
         if ProcessInfo.processInfo.arguments.contains("-seedDemo"), capsules.isEmpty {
             addDemoCapsule()
         }
+        #endif
     }
 
     // MARK: - 永続化(JSON + Documents)
@@ -44,11 +56,25 @@ final class RoomCapsuleStore: ObservableObject {
         decoder.dateDecodingStrategy = .iso8601
         do {
             let data = try Data(contentsOf: url)
-            capsules = try decoder.decode([RoomCapsule].self, from: data)
+            if let file = try? decoder.decode(CapsulesFile.self, from: data) {
+                guard file.schemaVersion <= Self.currentSchemaVersion else {
+                    // より新しいアプリが書いたデータ: 黙って上書きしないよう退避して空で再開
+                    if let backupName = backupUnreadableIndexFile(url) {
+                        loadFailureNotice = "この部屋一覧はより新しいバージョンの Room Capsule で保存されているため読み込めませんでした。元のファイルは同じフォルダに「\(backupName)」として退避してあります。"
+                    } else {
+                        loadFailureNotice = "この部屋一覧はより新しいバージョンの Room Capsule で保存されているため読み込めませんでした。"
+                    }
+                    return
+                }
+                capsules = file.capsules
+            } else {
+                // schemaVersion 導入(封筒化)前の旧形式: 裸の [RoomCapsule] 配列
+                capsules = try decoder.decode([RoomCapsule].self, from: data)
+            }
         } catch {
             // 破損した index を次回の persist() で黙って上書きしないよう退避してから、
             // 空の一覧で再開する(スキャン・写真・Splat の実ファイルは各カプセルのフォルダに残る)
-            if let backupName = backupCorruptIndexFile(url) {
+            if let backupName = backupUnreadableIndexFile(url) {
                 loadFailureNotice = "部屋一覧の保存データが破損していたため読み込めませんでした。元のファイルは同じフォルダに「\(backupName)」として退避してあります。スキャンや写真などのファイル自体は削除されていません。"
             } else {
                 loadFailureNotice = "部屋一覧の保存データが破損していたため読み込めませんでした。"
@@ -60,8 +86,8 @@ final class RoomCapsuleStore: ObservableObject {
         loadFailureNotice = nil
     }
 
-    /// 破損した capsules.json をタイムスタンプ付きの別名へ退避する(成功時は退避ファイル名を返す)
-    private func backupCorruptIndexFile(_ url: URL) -> String? {
+    /// 読めない capsules.json をタイムスタンプ付きの別名へ退避する(成功時は退避ファイル名を返す)
+    private func backupUnreadableIndexFile(_ url: URL) -> String? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
@@ -81,7 +107,7 @@ final class RoomCapsuleStore: ObservableObject {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data: Data
         do {
-            data = try encoder.encode(capsules)
+            data = try encoder.encode(CapsulesFile(schemaVersion: Self.currentSchemaVersion, capsules: capsules))
         } catch {
             throw RoomCapsuleStoreError.encodeFailed
         }
@@ -105,6 +131,29 @@ final class RoomCapsuleStore: ObservableObject {
 
     func capsule(id: UUID) -> RoomCapsule? {
         capsules.first { $0.id == id }
+    }
+
+    // MARK: - デフォルト名(スキャン保存パネルの事前入力用)
+
+    /// 「部屋 1」「部屋 2」…既存の名前と被らない次の番号を使う
+    func defaultCapsuleName() -> String {
+        let existingNames = Set(capsules.map(\.name))
+        var number = capsules.count + 1
+        while existingNames.contains("部屋 \(number)") {
+            number += 1
+        }
+        return "部屋 \(number)"
+    }
+
+    /// 「スキャン 1」「スキャン 2」…対象カプセルのバージョン名と被らない次の番号を使う
+    func defaultVersionName(for capsuleID: UUID?) -> String {
+        guard let capsuleID, let capsule = capsule(id: capsuleID) else { return "スキャン 1" }
+        let existingNames = Set(capsule.versions.map(\.name))
+        var number = capsule.versions.count + 1
+        while existingNames.contains("スキャン \(number)") {
+            number += 1
+        }
+        return "スキャン \(number)"
     }
 
     // MARK: - カプセル CRUD

@@ -14,6 +14,22 @@ struct FloorPlanCanvas: View {
 
     var body: some View {
         Canvas { context, size in
+            // スキャン開始時の端末の向きが座標系に焼き付いているため、
+            // 壁が水平・垂直(かつ横長)になるよう回転してから描く
+            let uprightYaw = RoomGeometryAlignment.uprightYaw(of: self.geometry)
+            let geometry = self.geometry.rotatedAroundY(uprightYaw)
+            // 導線を隠している機能のデータは描画にも乗せない(デモ部屋のピン・ゴースト対策)
+            let pins: [RoomMemoPin] = !FeatureFlags.memoPins ? [] : self.pins.map { pin in
+                var rotated = pin
+                rotated.position = RoomGeometryAlignment.rotated(pin.position, by: uprightYaw)
+                return rotated
+            }
+            let ghosts: [FurnitureGhost] = !FeatureFlags.furnitureGhosts ? [] : self.ghosts.map { ghost in
+                var rotated = ghost
+                rotated.position = RoomGeometryAlignment.rotated(ghost.position, by: uprightYaw)
+                rotated.rotationY += uprightYaw
+                return rotated
+            }
             guard let bounds = geometry.horizontalBounds else { return }
             let padding: CGFloat = 32
             let extent = bounds.max - bounds.min
@@ -115,8 +131,8 @@ struct FloorPlanCanvas: View {
                     arc.addArc(
                         center: hinge,
                         radius: CGFloat(opening.size.x) * scale,
-                        startAngle: .radians(doorAngle),
-                        endAngle: .radians(doorAngle + .pi / 2),
+                        startAngle: .radians(Double(doorAngle)),
+                        endAngle: .radians(Double(doorAngle) + Double.pi / 2),
                         clockwise: false
                     )
                     context.stroke(arc, with: .color(.orange.opacity(0.4)), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
@@ -254,7 +270,9 @@ struct FloorPlan2DView: View {
             legendItem(color: Theme.accentCyan, label: "窓")
             legendItem(color: .orange, label: "ドア")
             legendItem(color: Color(uiColor: FurnitureCategory.bed.uiColor), label: "家具")
-            legendItem(color: Theme.accentPurple, label: "メモ")
+            if FeatureFlags.memoPins {
+                legendItem(color: Theme.accentPurple, label: "メモ")
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

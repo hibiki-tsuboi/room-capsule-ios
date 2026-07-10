@@ -80,20 +80,22 @@ struct FullScaleARView: View {
                         VStack(spacing: 10) {
                             CloseButton { dismiss() }
                             if placed {
-                                Button {
-                                    pinPlacementActive.toggle()
-                                    Haptics.light()
-                                } label: {
-                                    Image(systemName: pinPlacementActive ? "mappin.circle.fill" : "mappin.circle")
-                                        .font(.headline)
-                                        .foregroundStyle(pinPlacementActive ? Color.black : Color.white)
-                                        .padding(12)
-                                        .background(
-                                            pinPlacementActive
-                                                ? AnyShapeStyle(Theme.accentGradient)
-                                                : AnyShapeStyle(.ultraThinMaterial),
-                                            in: Circle()
-                                        )
+                                if FeatureFlags.memoPins {
+                                    Button {
+                                        pinPlacementActive.toggle()
+                                        Haptics.light()
+                                    } label: {
+                                        Image(systemName: pinPlacementActive ? "mappin.circle.fill" : "mappin.circle")
+                                            .font(.headline)
+                                            .foregroundStyle(pinPlacementActive ? Color.black : Color.white)
+                                            .padding(12)
+                                            .background(
+                                                pinPlacementActive
+                                                    ? AnyShapeStyle(Theme.accentGradient)
+                                                    : AnyShapeStyle(.ultraThinMaterial),
+                                                in: Circle()
+                                            )
+                                    }
                                 }
                                 Button {
                                     resetToken += 1
@@ -178,7 +180,9 @@ struct FullScaleARView: View {
         if pinPlacementActive {
             return "壁や家具をタップしてメモピンを置く"
         }
-        return "スライダーで透明度調整・ゴーストは掴んで移動"
+        return FeatureFlags.furnitureGhosts
+            ? "スライダーで透明度調整・ゴーストは掴んで移動"
+            : "スライダーで透明度調整"
     }
 
     private func moveGhost(ghostID: UUID, to position: SIMD3<Float>) {
@@ -197,7 +201,10 @@ struct FullScaleARView: View {
 
     /// 実寸 AR で選べるモード(USDZ があれば高品質を先頭寄りに追加)
     private var fullScaleModes: [RoomDisplayMode] {
-        var modes: [RoomDisplayMode] = [.model, .xray, .structureOnly, .furnitureOnly, .memo]
+        var modes: [RoomDisplayMode] = [.model, .xray, .structureOnly, .furnitureOnly]
+        if FeatureFlags.memoPins {
+            modes.append(.memo)
+        }
         if version?.usdzURL != nil {
             modes.insert(.scanModel, at: 1)
         }

@@ -88,20 +88,22 @@ struct RoomImmersivePreviewView: View {
 
                         VStack(spacing: 10) {
                             CloseButton { closeTapped() }
-                            Button {
-                                pinPlacementActive.toggle()
-                                Haptics.light()
-                            } label: {
-                                Image(systemName: pinPlacementActive ? "mappin.circle.fill" : "mappin.circle")
-                                    .font(.headline)
-                                    .foregroundStyle(pinPlacementActive ? Color.black : Color.white)
-                                    .padding(12)
-                                    .background(
-                                        pinPlacementActive
-                                            ? AnyShapeStyle(Theme.accentGradient)
-                                            : AnyShapeStyle(.ultraThinMaterial),
-                                        in: Circle()
-                                    )
+                            if FeatureFlags.memoPins {
+                                Button {
+                                    pinPlacementActive.toggle()
+                                    Haptics.light()
+                                } label: {
+                                    Image(systemName: pinPlacementActive ? "mappin.circle.fill" : "mappin.circle")
+                                        .font(.headline)
+                                        .foregroundStyle(pinPlacementActive ? Color.black : Color.white)
+                                        .padding(12)
+                                        .background(
+                                            pinPlacementActive
+                                                ? AnyShapeStyle(Theme.accentGradient)
+                                                : AnyShapeStyle(.ultraThinMaterial),
+                                            in: Circle()
+                                        )
+                                }
                             }
                         }
                     }
@@ -115,7 +117,7 @@ struct RoomImmersivePreviewView: View {
                             .padding(.vertical, 8)
                             .glassCard(cornerRadius: 12)
                     } else {
-                        Text(startsInside ? "ドラッグで見回す・ピンチで前後に移動" : "ドラッグで回転・タップで選択・ゴーストは掴んで移動")
+                        Text(orbitHintText)
                             .font(.caption)
                             .foregroundStyle(Color.white.opacity(0.55))
                             .padding(.horizontal, 12)
@@ -185,6 +187,13 @@ struct RoomImmersivePreviewView: View {
             try? await Task.sleep(nanoseconds: 240_000_000)
             dismiss()
         }
+    }
+
+    private var orbitHintText: String {
+        if startsInside { return "ドラッグで見回す・ピンチで前後に移動" }
+        return FeatureFlags.furnitureGhosts
+            ? "ドラッグで回転・タップで選択・ゴーストは掴んで移動"
+            : "ドラッグで回転・タップで選択"
     }
 
     private func moveGhost(ghostID: UUID, to position: SIMD3<Float>) {

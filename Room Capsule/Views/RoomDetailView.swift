@@ -48,7 +48,6 @@ struct RoomDetailView: View {
     @State private var renameText = ""
     @State private var showDeleteConfirm = false
     @State private var versionDeletionTarget: RoomScanVersion?
-    @State private var showTimelineAlert = false
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var selectedVersion: RoomScanVersion? {
@@ -73,6 +72,9 @@ struct RoomDetailView: View {
                         Spacer(minLength: 40)
                     }
                     .padding(.horizontal)
+                    // iPad で間延びしないようコンテンツ幅に上限を設けて中央寄せ
+                    .frame(maxWidth: 700)
+                    .frame(maxWidth: .infinity)
                 }
             } else {
                 ContentUnavailableView("部屋が見つかりません", systemImage: "questionmark.circle")
@@ -126,7 +128,7 @@ struct RoomDetailView: View {
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("スキャン・メモ・写真・Splat データはすべてこの iPhone から完全に削除されます。")
+            Text("この部屋のスキャンデータや関連ファイルはすべてこの iPhone から完全に削除されます。")
         }
         .confirmationDialog(
             "バージョン「\(versionDeletionTarget?.name ?? "")」を削除しますか?",
@@ -147,12 +149,7 @@ struct RoomDetailView: View {
                 versionDeletionTarget = nil
             }
         } message: {
-            Text("このバージョンのスキャン・USDZ・Splat データは完全に削除されます。このバージョン限定のメモピンと家具ゴーストは「全バージョン共通」に変わります。")
-        }
-        .alert("バージョンが足りません", isPresented: $showTimelineAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("時間を比べるには 2 つ以上のバージョンが必要です。「バージョンを追加」でもう一度スキャンしてみてください。")
+            Text("このバージョンのスキャンデータや関連ファイルは完全に削除されます。")
         }
     }
 
@@ -161,28 +158,22 @@ struct RoomDetailView: View {
     @ViewBuilder
     private func previewCard(_ capsule: RoomCapsule) -> some View {
         if let version = selectedVersion {
-            ZStack(alignment: .bottomTrailing) {
+            Button {
+                Haptics.light()
+                activeScreen = .preview(.model)
+            } label: {
                 thumbnailView(version)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 220)
+                    // サムネイルは常に 480×360(4:3)で生成される(writeThumbnail)。
+                    // 同じ比率で表示すれば端末の幅によらず間取り全体がクロップなしで見える
+                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
                             .stroke(Color.white.opacity(0.12), lineWidth: 1)
                     )
-
-                Button {
-                    activeScreen = .preview(.model)
-                } label: {
-                    Label("3Dプレビュー", systemImage: "rotate.3d")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .foregroundStyle(.white)
-                }
-                .padding(12)
             }
+            .buttonStyle(.plain)
         } else {
             VStack(spacing: 14) {
                 Image(systemName: "camera.viewfinder")
@@ -281,12 +272,18 @@ struct RoomDetailView: View {
     private func statsRow(_ capsule: RoomCapsule) -> some View {
         HStack(spacing: 16) {
             StatBadge(systemImage: "clock.arrow.circlepath", text: "バージョン \(capsule.versions.count)")
-            StatBadge(systemImage: "mappin.and.ellipse", text: "メモ \(capsule.memoPins.count)")
-            StatBadge(systemImage: "sofa", text: "ゴースト \(capsule.furnitureGhosts.count)")
-            StatBadge(
-                systemImage: "sparkles",
-                text: capsule.hasSplat ? "Splat あり" : "Splat なし"
-            )
+            if FeatureFlags.memoPins {
+                StatBadge(systemImage: "mappin.and.ellipse", text: "メモ \(capsule.memoPins.count)")
+            }
+            if FeatureFlags.furnitureGhosts {
+                StatBadge(systemImage: "sofa", text: "ゴースト \(capsule.furnitureGhosts.count)")
+            }
+            if FeatureFlags.splat {
+                StatBadge(
+                    systemImage: "sparkles",
+                    text: capsule.hasSplat ? "Splat あり" : "Splat なし"
+                )
+            }
             Spacer()
         }
         .padding(.horizontal, 4)
@@ -351,47 +348,55 @@ struct RoomDetailView: View {
     private func modeGrid(_ capsule: RoomCapsule) -> some View {
         let hasVersion = selectedVersion != nil
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 12) {
-            ModeGridButton(title: "ミニチュアで見る", subtitle: "机の上にドールハウス", systemImage: "cube.transparent", enabled: hasVersion) {
+            ModeGridButton(title: "3Dプレビュー", subtitle: "ぐるっと回して見る", systemImage: "rotate.3d", enabled: hasVersion) {
+                activeScreen = .preview(.model)
+            }
+            ModeGridButton(title: "ミニチュアで見る", subtitle: "ドールハウスと実寸 AR", systemImage: "cube.transparent", enabled: hasVersion) {
                 activeScreen = .miniature
             }
-            ModeGridButton(title: "実寸で呼び出す", subtitle: "1:1 スケールで再現", systemImage: "arkit", enabled: hasVersion) {
-                activeScreen = .fullScale
+            if FeatureFlags.portal {
+                ModeGridButton(title: "ポータルを開く", subtitle: "AR のドアからのぞく", systemImage: "door.left.hand.open", enabled: hasVersion) {
+                    activeScreen = .portal
+                }
             }
-            ModeGridButton(title: "ポータルを開く", subtitle: "AR のドアからのぞく", systemImage: "door.left.hand.open", enabled: hasVersion) {
-                activeScreen = .portal
-            }
-            ModeGridButton(title: "写真っぽく見る", subtitle: "Gaussian Splatting", systemImage: "sparkles", enabled: hasVersion) {
-                activeScreen = .photoMode
+            if FeatureFlags.splat {
+                ModeGridButton(title: "写真っぽく見る", subtitle: "Gaussian Splatting", systemImage: "sparkles", enabled: hasVersion) {
+                    activeScreen = .photoMode
+                }
+                ModeGridButton(
+                    title: "スプラット AR",
+                    subtitle: "写真の部屋を現実に置く",
+                    systemImage: "wand.and.rays",
+                    enabled: selectedVersion?.splatAsset != nil
+                ) {
+                    activeScreen = .splatAR
+                }
             }
             ModeGridButton(
-                title: "スプラット AR",
-                subtitle: "写真の部屋を現実に置く",
-                systemImage: "wand.and.rays",
-                enabled: selectedVersion?.splatAsset != nil
+                title: "時間を比べる",
+                subtitle: capsule.versions.count >= 2 ? "Before / After" : "もう一度スキャンすると使える",
+                systemImage: "clock.arrow.2.circlepath",
+                enabled: hasVersion
             ) {
-                activeScreen = .splatAR
-            }
-            ModeGridButton(title: "時間を比べる", subtitle: "Before / After", systemImage: "clock.arrow.2.circlepath", enabled: hasVersion) {
-                if capsule.versions.count >= 2 {
-                    activeScreen = .timeline
-                } else {
-                    showTimelineAlert = true
-                }
+                activeScreen = .timeline
             }
             ModeGridButton(title: "図面で見る", subtitle: "2D 間取り図", systemImage: "square.grid.3x3", enabled: hasVersion) {
                 activeScreen = .floorPlan
             }
-            ModeGridButton(title: "メモを浮かべる", subtitle: "空間にメモピン", systemImage: "mappin.and.ellipse", enabled: hasVersion) {
-                activeScreen = .memoList
+            if FeatureFlags.memoPins {
+                ModeGridButton(title: "メモを浮かべる", subtitle: "空間にメモピン", systemImage: "mappin.and.ellipse", enabled: hasVersion) {
+                    activeScreen = .memoList
+                }
             }
-            ModeGridButton(title: "家具ゴースト", subtitle: "未来の家具を試す", systemImage: "sofa.fill", enabled: hasVersion) {
-                activeScreen = .ghostList
+            if FeatureFlags.furnitureGhosts {
+                ModeGridButton(title: "家具ゴースト", subtitle: "未来の家具を試す", systemImage: "sofa.fill", enabled: hasVersion) {
+                    activeScreen = .ghostList
+                }
             }
-            ModeGridButton(title: "X線・分解", subtitle: "構造を見る", systemImage: "eye", enabled: hasVersion) {
-                activeScreen = .preview(.xray)
-            }
-            ModeGridButton(title: "Splat 管理", subtitle: ".ply / .splat / .spz", systemImage: "square.and.arrow.down", enabled: hasVersion) {
-                activeScreen = .splatImport
+            if FeatureFlags.splat {
+                ModeGridButton(title: "Splat 管理", subtitle: ".ply / .splat / .spz", systemImage: "square.and.arrow.down", enabled: hasVersion) {
+                    activeScreen = .splatImport
+                }
             }
         }
     }
