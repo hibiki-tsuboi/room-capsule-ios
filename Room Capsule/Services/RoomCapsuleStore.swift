@@ -29,10 +29,12 @@ final class RoomCapsuleStore: ObservableObject {
     init() {
         AppFiles.ensureDirectory(AppFiles.capsulesRootURL)
         load()
+        #if DEBUG
         // UI テスト・シミュレータ確認用: 起動引数でデモ部屋を自動投入
         if ProcessInfo.processInfo.arguments.contains("-seedDemo"), capsules.isEmpty {
             addDemoCapsule()
         }
+        #endif
     }
 
     // MARK: - 永続化(JSON + Documents)

@@ -88,6 +88,7 @@ struct HomeView: View {
             }
         }
         .onAppear {
+            #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-autoPreview") {
                 showDebugPreview = true
             }
@@ -112,6 +113,7 @@ struct HomeView: View {
             if ProcessInfo.processInfo.arguments.contains("-autoSplatCapture") {
                 debugCaptureTarget = store.capsules.first ?? store.addDemoCapsule()
             }
+            #endif
         }
         .confirmationDialog(
             "「\(deletionTarget?.name ?? "")」を削除しますか?",
@@ -133,7 +135,7 @@ struct HomeView: View {
                 deletionTarget = nil
             }
         } message: {
-            Text("この部屋のスキャン・メモ・写真・Splat データはすべてこの iPhone から完全に削除されます。")
+            Text("この部屋のスキャンデータや関連ファイルはすべてこの iPhone から完全に削除されます。")
         }
         .alert("保存データを読み込めませんでした", isPresented: Binding(
             get: { store.loadFailureNotice != nil },
@@ -223,9 +225,13 @@ struct RoomCapsuleCard: View {
                     .foregroundStyle(Color.white.opacity(0.55))
                 HStack(spacing: 12) {
                     StatBadge(systemImage: "clock.arrow.circlepath", text: "\(capsule.versions.count)")
-                    StatBadge(systemImage: "mappin.and.ellipse", text: "\(capsule.memoPins.count)")
-                    StatBadge(systemImage: "sofa", text: "\(capsule.furnitureGhosts.count)")
-                    if capsule.hasSplat {
+                    if FeatureFlags.memoPins {
+                        StatBadge(systemImage: "mappin.and.ellipse", text: "\(capsule.memoPins.count)")
+                    }
+                    if FeatureFlags.furnitureGhosts {
+                        StatBadge(systemImage: "sofa", text: "\(capsule.furnitureGhosts.count)")
+                    }
+                    if FeatureFlags.splat, capsule.hasSplat {
                         StatBadge(systemImage: "sparkles", text: "Splat")
                     }
                 }

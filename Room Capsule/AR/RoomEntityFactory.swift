@@ -46,9 +46,16 @@ enum RoomDisplayMode: String, CaseIterable, Identifiable {
         }
     }
 
-    /// USDZ の有無に応じて選択できるモード一覧
+    /// USDZ の有無と FeatureFlags に応じて選択できるモード一覧
     static func availableModes(hasUSDZ: Bool) -> [RoomDisplayMode] {
-        hasUSDZ ? allCases : allCases.filter { $0 != .scanModel }
+        allCases.filter { mode in
+            switch mode {
+            case .scanModel: return hasUSDZ
+            case .memo: return FeatureFlags.memoPins
+            case .photo: return FeatureFlags.splat
+            default: return true
+            }
+        }
     }
 }
 

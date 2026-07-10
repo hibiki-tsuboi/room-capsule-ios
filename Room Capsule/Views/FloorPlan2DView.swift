@@ -254,7 +254,9 @@ struct FloorPlan2DView: View {
             legendItem(color: Theme.accentCyan, label: "窓")
             legendItem(color: .orange, label: "ドア")
             legendItem(color: Color(uiColor: FurnitureCategory.bed.uiColor), label: "家具")
-            legendItem(color: Theme.accentPurple, label: "メモ")
+            if FeatureFlags.memoPins {
+                legendItem(color: Theme.accentPurple, label: "メモ")
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

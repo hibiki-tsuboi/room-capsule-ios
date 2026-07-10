@@ -70,9 +70,7 @@ struct MiniatureARView: View {
 
                 VStack {
                     HStack(alignment: .top) {
-                        Text(placed
-                             ? "ピンチで拡大・2本指で回転・ゴーストは掴んで移動"
-                             : "机や床にカメラを向けて、タップでミニチュアを設置")
+                        Text(hintText)
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
@@ -148,6 +146,13 @@ struct MiniatureARView: View {
                 shutterFlash = false
             }
         }
+    }
+
+    private var hintText: String {
+        guard placed else { return "机や床にカメラを向けて、タップでミニチュアを設置" }
+        return FeatureFlags.furnitureGhosts
+            ? "ピンチで拡大・2本指で回転・ゴーストは掴んで移動"
+            : "ピンチで拡大・2本指で回転"
     }
 
     private func moveGhost(ghostID: UUID, to position: SIMD3<Float>) {

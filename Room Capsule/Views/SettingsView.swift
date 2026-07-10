@@ -17,7 +17,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("このアプリについて") {
-                    Text("Room Capsule は、いま目の前にある部屋を iPhone でスキャンして、ミニチュア・実寸 AR・ポータル・写真のような 3D 空間として保存し、あとから再体験できるアプリです。")
+                    Text("Room Capsule は、いま目の前にある部屋を iPhone でスキャンして、ミニチュアや実寸の AR・2D の間取り図として保存し、あとから再体験できるアプリです。")
                         .font(.subheadline)
                 }
 
@@ -31,7 +31,7 @@ struct SettingsView: View {
                     .font(.subheadline)
 
                     Label {
-                        Text("このアプリはスキャン・メモ・写真・Splat をすべてこの iPhone の中(ローカル)にのみ保存します。クラウドへの送信は行いません。")
+                        Text("このアプリは保存したデータをすべてこの iPhone の中(ローカル)にのみ保存します。クラウドへの送信は行いません。")
                     } icon: {
                         Image(systemName: "iphone")
                             .foregroundStyle(Theme.accentCyan)
@@ -58,7 +58,7 @@ struct SettingsView: View {
                     LabeledContent("バージョン", value: appVersionText)
                 }
 
-                // TODO: リリース前にこのセクションごと削除する(テスト用の仮置き)
+                #if DEBUG
                 Section {
                     Button {
                         _ = store.addDemoCapsule()
@@ -67,10 +67,11 @@ struct SettingsView: View {
                         Label("デモ部屋を追加", systemImage: "wand.and.stars")
                     }
                 } header: {
-                    Text("開発用(リリース前に削除)")
+                    Text("開発用(DEBUG ビルドのみ)")
                 } footer: {
-                    Text("テスト用にデモ部屋を追加します。このセクションはリリース時には表示されません。")
+                    Text("テスト用にデモ部屋を追加します。このセクションは DEBUG ビルドにだけ表示されます。")
                 }
+                #endif
             }
             .scrollContentBackground(.hidden)
             .background(Theme.backgroundTop)
@@ -87,7 +88,7 @@ struct SettingsView: View {
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("すべての部屋カプセル・スキャン・メモ・写真・Splat データがこの iPhone から完全に削除されます。この操作は取り消せません。")
+                Text("すべての部屋カプセルとスキャンデータがこの iPhone から完全に削除されます。この操作は取り消せません。")
             }
         }
         .preferredColorScheme(.dark)
