@@ -119,6 +119,7 @@ struct TimelineComparisonView: View {
                     }
                     .padding(16)
                     .glassCard(cornerRadius: 18)
+                    .frame(maxWidth: 700)
                     .padding()
                 }
             } else {

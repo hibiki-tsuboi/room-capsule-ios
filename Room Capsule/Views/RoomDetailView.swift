@@ -72,6 +72,9 @@ struct RoomDetailView: View {
                         Spacer(minLength: 40)
                     }
                     .padding(.horizontal)
+                    // iPad で間延びしないようコンテンツ幅に上限を設けて中央寄せ
+                    .frame(maxWidth: 700)
+                    .frame(maxWidth: .infinity)
                 }
             } else {
                 ContentUnavailableView("部屋が見つかりません", systemImage: "questionmark.circle")
@@ -161,7 +164,9 @@ struct RoomDetailView: View {
             } label: {
                 thumbnailView(version)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 220)
+                    // サムネイルは常に 480×360(4:3)で生成される(writeThumbnail)。
+                    // 同じ比率で表示すれば端末の幅によらず間取り全体がクロップなしで見える
+                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)

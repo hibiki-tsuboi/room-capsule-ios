@@ -46,6 +46,9 @@ struct HomeView: View {
                         Spacer(minLength: 40)
                     }
                     .padding(.horizontal)
+                    // iPad で間延びしないようコンテンツ幅に上限を設けて中央寄せ
+                    .frame(maxWidth: 700)
+                    .frame(maxWidth: .infinity)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -203,6 +206,8 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(PrimaryButtonStyle())
+        .frame(maxWidth: 700)
+        .frame(maxWidth: .infinity)
         .padding(.horizontal)
         .padding(.top, 10)
         .padding(.bottom, 6)
