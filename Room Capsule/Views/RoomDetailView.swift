@@ -161,7 +161,10 @@ struct RoomDetailView: View {
     @ViewBuilder
     private func previewCard(_ capsule: RoomCapsule) -> some View {
         if let version = selectedVersion {
-            ZStack(alignment: .bottomTrailing) {
+            Button {
+                Haptics.light()
+                activeScreen = .preview(.model)
+            } label: {
                 thumbnailView(version)
                     .frame(maxWidth: .infinity)
                     .frame(height: 220)
@@ -170,19 +173,8 @@ struct RoomDetailView: View {
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
                             .stroke(Color.white.opacity(0.12), lineWidth: 1)
                     )
-
-                Button {
-                    activeScreen = .preview(.model)
-                } label: {
-                    Label("3Dプレビュー", systemImage: "rotate.3d")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .foregroundStyle(.white)
-                }
-                .padding(12)
             }
+            .buttonStyle(.plain)
         } else {
             VStack(spacing: 14) {
                 Image(systemName: "camera.viewfinder")
@@ -357,6 +349,9 @@ struct RoomDetailView: View {
     private func modeGrid(_ capsule: RoomCapsule) -> some View {
         let hasVersion = selectedVersion != nil
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 12) {
+            ModeGridButton(title: "3Dプレビュー", subtitle: "ぐるっと回して見る", systemImage: "rotate.3d", enabled: hasVersion) {
+                activeScreen = .preview(.model)
+            }
             ModeGridButton(title: "ミニチュアで見る", subtitle: "机の上にドールハウス", systemImage: "cube.transparent", enabled: hasVersion) {
                 activeScreen = .miniature
             }
@@ -400,9 +395,6 @@ struct RoomDetailView: View {
                 ModeGridButton(title: "家具ゴースト", subtitle: "未来の家具を試す", systemImage: "sofa.fill", enabled: hasVersion) {
                     activeScreen = .ghostList
                 }
-            }
-            ModeGridButton(title: "X線・分解", subtitle: "構造を見る", systemImage: "eye", enabled: hasVersion) {
-                activeScreen = .preview(.xray)
             }
             if FeatureFlags.splat {
                 ModeGridButton(title: "Splat 管理", subtitle: ".ply / .splat / .spz", systemImage: "square.and.arrow.down", enabled: hasVersion) {
