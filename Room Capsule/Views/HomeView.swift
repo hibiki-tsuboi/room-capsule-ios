@@ -27,7 +27,8 @@ struct HomeView: View {
                         if store.capsules.isEmpty {
                             emptyState
                         } else {
-                            ForEach(store.capsules) { capsule in
+                            // 直近に触った(スキャンした)部屋が上に来るように
+                            ForEach(store.capsules.sorted(by: { $0.updatedAt > $1.updatedAt })) { capsule in
                                 NavigationLink(value: capsule.id) {
                                     RoomCapsuleCard(capsule: capsule)
                                 }
