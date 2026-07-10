@@ -154,6 +154,10 @@ enum RoomEntityFactory {
         mode: RoomDisplayMode = .model,
         usdzURL: URL? = nil
     ) -> Entity {
+        // 導線を隠している機能のデータは描画にも乗せない
+        // (デモ部屋にはピン・ゴーストが入っており、リリースでも非 LiDAR 端末から到達できるため)
+        let pins = FeatureFlags.memoPins ? pins : []
+        let ghosts = FeatureFlags.furnitureGhosts ? ghosts : []
         let root = Entity()
         root.name = "RoomRoot"
         let content = Entity()
