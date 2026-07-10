@@ -109,6 +109,29 @@ final class RoomCapsuleStore: ObservableObject {
         capsules.first { $0.id == id }
     }
 
+    // MARK: - デフォルト名(スキャン保存パネルの事前入力用)
+
+    /// 「部屋 1」「部屋 2」…既存の名前と被らない次の番号を使う
+    func defaultCapsuleName() -> String {
+        let existingNames = Set(capsules.map(\.name))
+        var number = capsules.count + 1
+        while existingNames.contains("部屋 \(number)") {
+            number += 1
+        }
+        return "部屋 \(number)"
+    }
+
+    /// 「スキャン 1」「スキャン 2」…対象カプセルのバージョン名と被らない次の番号を使う
+    func defaultVersionName(for capsuleID: UUID?) -> String {
+        guard let capsuleID, let capsule = capsule(id: capsuleID) else { return "スキャン 1" }
+        let existingNames = Set(capsule.versions.map(\.name))
+        var number = capsule.versions.count + 1
+        while existingNames.contains("スキャン \(number)") {
+            number += 1
+        }
+        return "スキャン \(number)"
+    }
+
     // MARK: - カプセル CRUD
 
     @discardableResult

@@ -169,6 +169,15 @@ struct SupportedScanView: View {
         } message: {
             Text(saveErrorMessage ?? "")
         }
+        .onAppear {
+            // そのまま保存できるようデフォルト名を先に入れておく(自由に書き換え可)
+            if roomName.isEmpty {
+                roomName = store.defaultCapsuleName()
+            }
+            if versionName.isEmpty {
+                versionName = store.defaultVersionName(for: targetCapsuleID)
+            }
+        }
     }
 
     private func scanStat(_ symbol: String, _ text: String) -> some View {
@@ -262,7 +271,7 @@ struct SupportedScanView: View {
             if let targetCapsuleID {
                 capsuleID = targetCapsuleID
             } else {
-                let capsule = try store.createCapsule(named: roomName.isEmpty ? "スキャンした部屋" : roomName)
+                let capsule = try store.createCapsule(named: roomName.isEmpty ? store.defaultCapsuleName() : roomName)
                 capsuleID = capsule.id
                 createdCapsuleID = capsule.id
             }
