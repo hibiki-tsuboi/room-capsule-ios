@@ -14,6 +14,21 @@ struct FloorPlanCanvas: View {
 
     var body: some View {
         Canvas { context, size in
+            // スキャン開始時の端末の向きが座標系に焼き付いているため、
+            // 壁が水平・垂直(かつ横長)になるよう回転してから描く
+            let uprightYaw = RoomGeometryAlignment.uprightYaw(of: self.geometry)
+            let geometry = self.geometry.rotatedAroundY(uprightYaw)
+            let pins = self.pins.map { pin in
+                var rotated = pin
+                rotated.position = RoomGeometryAlignment.rotated(pin.position, by: uprightYaw)
+                return rotated
+            }
+            let ghosts = self.ghosts.map { ghost in
+                var rotated = ghost
+                rotated.position = RoomGeometryAlignment.rotated(ghost.position, by: uprightYaw)
+                rotated.rotationY += uprightYaw
+                return rotated
+            }
             guard let bounds = geometry.horizontalBounds else { return }
             let padding: CGFloat = 32
             let extent = bounds.max - bounds.min

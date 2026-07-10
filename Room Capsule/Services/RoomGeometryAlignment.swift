@@ -33,6 +33,28 @@ enum RoomGeometryAlignment {
         return normalizedAngle(bestYaw)
     }
 
+    // MARK: - 間取り図用の正立化
+
+    /// 間取り図・サムネイル用: 壁が水平・垂直になり、部屋が横長になる回転角。
+    /// スキャン開始時の端末の向きがそのまま座標系に焼き付いているのを打ち消す。
+    static func uprightYaw(of geometry: SimplifiedRoomGeometry) -> Float {
+        guard !geometry.walls.isEmpty else { return 0 }
+        var yaw = -dominantWallDirection(of: geometry)
+        if let bounds = geometry.rotatedAroundY(yaw).horizontalBounds {
+            let extent = bounds.max - bounds.min
+            if extent.y > extent.x {
+                yaw += .pi / 2
+            }
+        }
+        return normalizedAngle(yaw)
+    }
+
+    /// 上面図の回転と同じ規約で 3D 点を Y 軸まわりに回す
+    static func rotated(_ point: SIMD3<Float>, by angle: Float) -> SIMD3<Float> {
+        let flat = rotated(SIMD2(point.x, point.z), by: angle)
+        return [flat.x, point.y, flat.y]
+    }
+
     // MARK: - 支配的な壁方向
 
     /// 壁方向の加重平均(壁は 90° 単位で直交しがちなので mod 90° で扱う)。
@@ -102,7 +124,7 @@ enum RoomGeometryAlignment {
     }
 
     /// エンティティの Y 軸回転(右手系)と同じ向きで上面図 (x, z) を回す
-    private static func rotated(_ point: SIMD2<Float>, by angle: Float) -> SIMD2<Float> {
+    static func rotated(_ point: SIMD2<Float>, by angle: Float) -> SIMD2<Float> {
         SIMD2(
             cos(angle) * point.x + sin(angle) * point.y,
             -sin(angle) * point.x + cos(angle) * point.y
@@ -113,6 +135,38 @@ enum RoomGeometryAlignment {
         var result = angle.truncatingRemainder(dividingBy: 2 * .pi)
         if result > .pi { result -= 2 * .pi }
         if result <= -.pi { result += 2 * .pi }
+        return result
+    }
+}
+
+extension SimplifiedRoomGeometry {
+    /// 全パーツを原点まわりに Y 軸回転したコピー
+    func rotatedAroundY(_ yaw: Float) -> SimplifiedRoomGeometry {
+        var result = self
+        result.walls = walls.map { wall in
+            var rotated = wall
+            rotated.position = RoomGeometryAlignment.rotated(wall.position, by: yaw)
+            rotated.rotationY += yaw
+            return rotated
+        }
+        result.openings = openings.map { opening in
+            var rotated = opening
+            rotated.position = RoomGeometryAlignment.rotated(opening.position, by: yaw)
+            rotated.rotationY += yaw
+            return rotated
+        }
+        result.furniture = furniture.map { item in
+            var rotated = item
+            rotated.position = RoomGeometryAlignment.rotated(item.position, by: yaw)
+            rotated.rotationY += yaw
+            return rotated
+        }
+        if let floor {
+            var rotated = floor
+            rotated.position = RoomGeometryAlignment.rotated(floor.position, by: yaw)
+            rotated.rotationY += yaw
+            result.floor = rotated
+        }
         return result
     }
 }
