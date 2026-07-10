@@ -48,7 +48,6 @@ struct RoomDetailView: View {
     @State private var renameText = ""
     @State private var showDeleteConfirm = false
     @State private var versionDeletionTarget: RoomScanVersion?
-    @State private var showTimelineAlert = false
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var selectedVersion: RoomScanVersion? {
@@ -148,11 +147,6 @@ struct RoomDetailView: View {
             }
         } message: {
             Text("このバージョンのスキャンデータや関連ファイルは完全に削除されます。")
-        }
-        .alert("バージョンが足りません", isPresented: $showTimelineAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("時間を比べるには 2 つ以上のバージョンが必要です。「バージョンを追加」でもう一度スキャンしてみてください。")
         }
     }
 
@@ -373,12 +367,13 @@ struct RoomDetailView: View {
                     activeScreen = .splatAR
                 }
             }
-            ModeGridButton(title: "時間を比べる", subtitle: "Before / After", systemImage: "clock.arrow.2.circlepath", enabled: hasVersion) {
-                if capsule.versions.count >= 2 {
-                    activeScreen = .timeline
-                } else {
-                    showTimelineAlert = true
-                }
+            ModeGridButton(
+                title: "時間を比べる",
+                subtitle: capsule.versions.count >= 2 ? "Before / After" : "もう一度スキャンすると使える",
+                systemImage: "clock.arrow.2.circlepath",
+                enabled: hasVersion
+            ) {
+                activeScreen = .timeline
             }
             ModeGridButton(title: "図面で見る", subtitle: "2D 間取り図", systemImage: "square.grid.3x3", enabled: hasVersion) {
                 activeScreen = .floorPlan
