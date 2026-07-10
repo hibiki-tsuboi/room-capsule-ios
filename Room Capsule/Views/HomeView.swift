@@ -12,6 +12,7 @@ struct HomeView: View {
     @State private var debugSplatAsset: SplatAsset?
     @State private var debugSplatARAsset: SplatAsset?
     @State private var debugCaptureTarget: RoomCapsule?
+    @State private var debugTimelineTarget: RoomCapsule?
     @State private var navigationPath = NavigationPath()
 
     var body: some View {
@@ -87,6 +88,9 @@ struct HomeView: View {
                 SplatCaptureView(capsuleID: capsule.id, versionID: version.id)
             }
         }
+        .fullScreenCover(item: $debugTimelineTarget) { capsule in
+            TimelineComparisonView(capsuleID: capsule.id)
+        }
         .onAppear {
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-autoPreview") {
@@ -112,6 +116,9 @@ struct HomeView: View {
             }
             if ProcessInfo.processInfo.arguments.contains("-autoSplatCapture") {
                 debugCaptureTarget = store.capsules.first ?? store.addDemoCapsule()
+            }
+            if ProcessInfo.processInfo.arguments.contains("-autoTimeline") {
+                debugTimelineTarget = store.capsules.first ?? store.addDemoCapsule()
             }
             #endif
         }

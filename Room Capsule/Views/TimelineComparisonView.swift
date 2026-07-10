@@ -304,6 +304,12 @@ struct TimelineARContainer: UIViewRepresentable {
                 ghosts: parent.afterGhosts,
                 mode: .memo
             )
+            // 別スキャン(=別の AR セッション座標)由来の向きの違いを吸収して before に重ねる。
+            // 平行移動は各エンティティが外接矩形中心でセンタリング済みなので回転だけでよい
+            after.orientation = simd_quatf(
+                angle: RoomGeometryAlignment.alignmentYaw(of: parent.afterGeometry, to: parent.beforeGeometry),
+                axis: [0, 1, 0]
+            )
             worldAnchor?.addChild(before)
             worldAnchor?.addChild(after)
             beforeEntity = before
