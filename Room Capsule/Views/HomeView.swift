@@ -120,6 +120,9 @@ struct HomeView: View {
             if ProcessInfo.processInfo.arguments.contains("-autoTimeline") {
                 debugTimelineTarget = store.capsules.first ?? store.addDemoCapsule()
             }
+            if ProcessInfo.processInfo.arguments.contains("-autoSettings") {
+                showSettings = true
+            }
             #endif
         }
         .confirmationDialog(

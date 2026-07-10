@@ -16,14 +16,9 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("このアプリについて") {
-                    Text("Room Capsule は、いま目の前にある部屋を iPhone でスキャンして、ミニチュアや実寸の AR・2D の間取り図として保存し、あとから再体験できるアプリです。")
-                        .font(.subheadline)
-                }
-
                 Section("プライバシーとデータ") {
                     Label {
-                        Text("部屋のスキャンデータは、あなたの生活空間そのものであるプライベートな情報です。")
+                        Text("スキャンした部屋のデータは、すべてこの iPhone の中(ローカル)にのみ保存されます。クラウドへの送信は行いません。")
                     } icon: {
                         Image(systemName: "lock.shield")
                             .foregroundStyle(Theme.accentCyan)
@@ -31,24 +26,13 @@ struct SettingsView: View {
                     .font(.subheadline)
 
                     Label {
-                        Text("このアプリは保存したデータをすべてこの iPhone の中(ローカル)にのみ保存します。クラウドへの送信は行いません。")
-                    } icon: {
-                        Image(systemName: "iphone")
-                            .foregroundStyle(Theme.accentCyan)
-                    }
-                    .font(.subheadline)
-
-                    Label {
-                        Text("各部屋の削除ボタン、または下の「すべてのデータを削除」で、関連ファイルごと完全に削除できます。")
+                        Text("各部屋の削除、または下のボタンで、関連ファイルごと完全に削除できます。")
                     } icon: {
                         Image(systemName: "trash")
                             .foregroundStyle(Theme.accentCyan)
                     }
                     .font(.subheadline)
-                }
 
-                Section("データ") {
-                    LabeledContent("保存済みの部屋", value: "\(store.capsules.count)")
                     Button("すべてのデータを削除", role: .destructive) {
                         confirmDeleteAll = true
                     }
