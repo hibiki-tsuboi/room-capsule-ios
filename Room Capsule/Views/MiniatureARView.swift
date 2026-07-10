@@ -323,10 +323,11 @@ struct MiniatureARContainer: UIViewRepresentable {
             arView.addGestureRecognizer(pan)
         }
 
+        /// 初期表示は手のひらサイズ(部屋の最長辺が約 20cm)。ピンチで自由に拡大できる
         private var defaultScale: Float {
             let size = parent.geometry.approximateSize
             let maxDimension = max(size.x, size.z)
-            return min(0.6 / max(maxDimension, 0.5), 0.25)
+            return min(0.2 / max(maxDimension, 0.5), 0.25)
         }
 
         func handleResetTokenIfNeeded() {
