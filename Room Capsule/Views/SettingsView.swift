@@ -41,21 +41,6 @@ struct SettingsView: View {
                 Section("情報") {
                     LabeledContent("バージョン", value: appVersionText)
                 }
-
-                #if DEBUG
-                Section {
-                    Button {
-                        _ = store.addDemoCapsule()
-                        Haptics.success()
-                    } label: {
-                        Label("デモ部屋を追加", systemImage: "wand.and.stars")
-                    }
-                } header: {
-                    Text("開発用(DEBUG ビルドのみ)")
-                } footer: {
-                    Text("テスト用にデモ部屋を追加します。このセクションは DEBUG ビルドにだけ表示されます。")
-                }
-                #endif
             }
             .scrollContentBackground(.hidden)
             .background(Theme.backgroundTop)
