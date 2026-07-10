@@ -16,6 +16,8 @@ struct MiniatureARView: View {
     @State private var mode: RoomDisplayMode = .model
     @State private var selectedPart: RoomPartInfo?
     @State private var placed = false
+    @State private var fullScale = false
+    @State private var opacity: Float = 1.0
     @State private var resetToken = 0
     @State private var showPreviewFallback = false
     @State private var snapshotToken = 0
@@ -46,10 +48,17 @@ struct MiniatureARView: View {
                     ghosts: capsule.ghosts(forVersion: version.id),
                     mode: mode,
                     usdzURL: version.usdzURL,
+                    fullScale: fullScale,
+                    opacity: opacity,
                     resetToken: resetToken,
                     snapshotToken: snapshotToken,
                     onSelectPart: { selectedPart = $0 },
-                    onPlacementChange: { placed = $0 },
+                    onPlacementChange: { isPlaced in
+                        placed = isPlaced
+                        // 設置もリセットも常にミニチュア表示から始める(実寸状態を持ち越さない)
+                        fullScale = false
+                        opacity = 1.0
+                    },
                     onGhostMoved: { ghostID, position in
                         moveGhost(ghostID: ghostID, to: position)
                     },
@@ -93,6 +102,24 @@ struct MiniatureARView: View {
                                         .background(.ultraThinMaterial, in: Circle())
                                 }
                                 Button {
+                                    fullScale.toggle()
+                                    if !fullScale {
+                                        opacity = 1.0
+                                    }
+                                    Haptics.medium()
+                                } label: {
+                                    Image(systemName: fullScale ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                                        .font(.headline)
+                                        .foregroundStyle(fullScale ? Color.black : Color.white)
+                                        .padding(12)
+                                        .background(
+                                            fullScale
+                                                ? AnyShapeStyle(Theme.accentGradient)
+                                                : AnyShapeStyle(.ultraThinMaterial),
+                                            in: Circle()
+                                        )
+                                }
+                                Button {
                                     takeSnapshot()
                                 } label: {
                                     Image(systemName: "camera.fill")
@@ -112,6 +139,21 @@ struct MiniatureARView: View {
                         PartInspectorCard(info: selectedPart) {
                             self.selectedPart = nil
                         }
+                        .padding(.horizontal)
+                    }
+
+                    if placed && fullScale {
+                        HStack(spacing: 10) {
+                            Image(systemName: "circle.dotted")
+                                .foregroundStyle(Color.white.opacity(0.6))
+                            Slider(value: $opacity, in: 0.1...1.0)
+                                .tint(Theme.accentCyan)
+                            Image(systemName: "circle.fill")
+                                .foregroundStyle(Color.white.opacity(0.9))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .glassCard(cornerRadius: 14)
                         .padding(.horizontal)
                     }
 
@@ -150,6 +192,9 @@ struct MiniatureARView: View {
 
     private var hintText: String {
         guard placed else { return "机や床にカメラを向けて、タップでミニチュアを設置" }
+        if fullScale {
+            return "歩いて部屋の中へ・ズレたらリセットして床をタップ"
+        }
         return FeatureFlags.furnitureGhosts
             ? "ピンチで拡大・2本指で回転・ゴーストは掴んで移動"
             : "ピンチで拡大・2本指で回転"
@@ -189,6 +234,8 @@ struct MiniatureARContainer: UIViewRepresentable {
     var ghosts: [FurnitureGhost]
     var mode: RoomDisplayMode
     var usdzURL: URL? = nil
+    var fullScale: Bool = false
+    var opacity: Float = 1.0
     var resetToken: Int
     var snapshotToken: Int = 0
     var onSelectPart: (RoomPartInfo?) -> Void
@@ -212,6 +259,8 @@ struct MiniatureARContainer: UIViewRepresentable {
         context.coordinator.handleResetTokenIfNeeded()
         context.coordinator.handleSnapshotTokenIfNeeded()
         context.coordinator.refreshContentIfNeeded()
+        context.coordinator.applyScaleIfNeeded()
+        context.coordinator.applyOpacityIfNeeded()
     }
 
     @MainActor
@@ -225,6 +274,8 @@ struct MiniatureARContainer: UIViewRepresentable {
         private let selection = RoomSelectionManager()
         private var contentSignature: Int?
         private var currentScale: Float = 0.12
+        private var lastFullScale = false
+        private var lastOpacity: Float = 1.0
         private var lastResetToken = 0
         private var lastSnapshotToken = 0
         private var draggingGhost: (entity: ModelEntity, ghostID: UUID)?
@@ -290,7 +341,30 @@ struct MiniatureARContainer: UIViewRepresentable {
             placementAnchor = nil
             container = nil
             roomEntity = nil
-            parent.onPlacementChange(false)
+            lastFullScale = false
+            lastOpacity = 1.0
+            // updateUIView(ビュー更新中)から呼ばれるため、state の書き換えは
+            // 更新サイクルの外へ逃がす(更新中の直接変更は反映が落ちることがある)
+            let onPlacementChange = parent.onPlacementChange
+            Task { @MainActor in
+                onPlacementChange(false)
+            }
+        }
+
+        /// 実寸⇄ミニチュアの切替(設置点を基準にアニメーションで拡縮)
+        func applyScaleIfNeeded() {
+            guard let container, parent.fullScale != lastFullScale else { return }
+            lastFullScale = parent.fullScale
+            currentScale = parent.fullScale ? 1.0 : defaultScale
+            var transform = container.transform
+            transform.scale = SIMD3<Float>(repeating: currentScale)
+            container.move(to: transform, relativeTo: container.parent, duration: 0.4)
+        }
+
+        func applyOpacityIfNeeded() {
+            guard let roomEntity, parent.opacity != lastOpacity else { return }
+            lastOpacity = parent.opacity
+            RoomEntityFactory.applyGlobalOpacity(parent.opacity, to: roomEntity)
         }
 
         func refreshContentIfNeeded() {
@@ -320,6 +394,11 @@ struct MiniatureARContainer: UIViewRepresentable {
             )
             container.addChild(entity)
             roomEntity = entity
+            lastOpacity = 1.0
+            if parent.opacity != 1.0 {
+                RoomEntityFactory.applyGlobalOpacity(parent.opacity, to: entity)
+                lastOpacity = parent.opacity
+            }
         }
 
         // MARK: ジェスチャ
@@ -346,7 +425,10 @@ struct MiniatureARContainer: UIViewRepresentable {
             placementAnchor = anchor
 
             let newContainer = Entity()
+            // 設置は常にミニチュアから。コーディネータ側のフラグもここで揃えて、
+            // 直後の applyScaleIfNeeded が古い実寸状態で発火しないようにする
             currentScale = defaultScale
+            lastFullScale = false
             newContainer.scale = SIMD3<Float>(repeating: currentScale)
             anchor.addChild(newContainer)
             container = newContainer
@@ -368,8 +450,9 @@ struct MiniatureARContainer: UIViewRepresentable {
             rebuildRoom()
         }
 
+        /// 実寸表示中は 1:1 を保つためピンチ無効(トグルでミニチュアに戻せば再び拡縮できる)
         @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
-            guard let container else { return }
+            guard let container, !parent.fullScale else { return }
             let scale = Float(recognizer.scale)
             recognizer.scale = 1
             currentScale = min(max(currentScale * scale, 0.02), 1.2)

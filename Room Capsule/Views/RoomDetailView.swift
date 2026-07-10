@@ -352,11 +352,8 @@ struct RoomDetailView: View {
             ModeGridButton(title: "3Dプレビュー", subtitle: "ぐるっと回して見る", systemImage: "rotate.3d", enabled: hasVersion) {
                 activeScreen = .preview(.model)
             }
-            ModeGridButton(title: "ミニチュアで見る", subtitle: "机の上にドールハウス", systemImage: "cube.transparent", enabled: hasVersion) {
+            ModeGridButton(title: "ミニチュアで見る", subtitle: "ドールハウスと実寸 AR", systemImage: "cube.transparent", enabled: hasVersion) {
                 activeScreen = .miniature
-            }
-            ModeGridButton(title: "実寸で呼び出す", subtitle: "1:1 スケールで再現", systemImage: "arkit", enabled: hasVersion) {
-                activeScreen = .fullScale
             }
             if FeatureFlags.portal {
                 ModeGridButton(title: "ポータルを開く", subtitle: "AR のドアからのぞく", systemImage: "door.left.hand.open", enabled: hasVersion) {
