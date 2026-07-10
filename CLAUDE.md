@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Room Capsule is an iOS app (SwiftUI + RealityKit + ARKit + RoomPlan + Metal) that scans rooms with RoomPlan and replays them as AR miniatures, full-scale AR, portals, 2D floor plans, high-quality USDZ models, and real Gaussian Splatting rendering. Paths contain spaces ("Room Capsule"), so always quote them in shell commands.
+Room Capsule is an iOS app (SwiftUI + RealityKit + ARKit + RoomPlan + Metal) that scans rooms with RoomPlan and replays them as AR miniatures, full-scale AR, portals, 2D floor plans, high-quality USDZ models, and real Gaussian Splatting rendering. The shipped v1 exposes only scan / 3D preview / miniature AR (with a full-scale toggle) / Before-After timeline / 2D floor plan / USDZ share; portals, Gaussian Splatting, memo pins, and furniture ghosts are fully implemented but hidden behind `FeatureFlags` (see Architecture). Paths contain spaces ("Room Capsule"), so always quote them in shell commands.
 
 The Xcode project uses `PBXFileSystemSynchronizedRootGroup` (objectVersion 77): any file added under `Room Capsule/` is automatically part of the target — no pbxproj editing needed for new files.
 
@@ -57,7 +57,7 @@ There are no test targets yet. Once one exists, run tests with `xcodebuild ... t
 - RoomPlan code must stay behind `#if canImport(RoomPlan)` with runtime `RoomCaptureSession.isSupported` checks; `RoomCaptureViewDelegate` requires NSCoding, hence the `UIViewController` host in `RoomCaptureScanView.swift`.
 - The UI is dark-mode-only by design: `.preferredColorScheme(.dark)` on the root and on sheets, with `Theme` colors and white text hard-coded for dark. Don't remove those modifiers without first building an adaptive light palette.
 - App metadata lives in pbxproj `INFOPLIST_KEY_*` build settings (no Info.plist file): display name "Room Capsule", App Store category lifestyle, iPhone portrait-only (iPad all orientations), Japanese camera/photo usage strings.
-- Never break the demo-mode path: every feature must be reachable in the simulator via `DemoRoomFactory` data.
+- Never break the demo-mode path: every visible feature must be reachable in the simulator via `DemoRoomFactory` data (seeded with `-seedDemo`); the FeatureFlags-hidden stacks are exercised via the `-autoSplat*` launch arguments instead.
 
 ## Language rules
 - Always answer in Japanese.
