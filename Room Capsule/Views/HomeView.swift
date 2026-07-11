@@ -149,7 +149,7 @@ struct HomeView: View {
                 deletionTarget = nil
             }
         } message: {
-            Text("この部屋のスキャンデータや関連ファイルはすべてこの iPhone から完全に削除されます。")
+            Text("この部屋のスキャン・メモ・写真・Splat データはすべてこの iPhone から完全に削除されます。")
         }
         .alert("保存データを読み込めませんでした", isPresented: Binding(
             get: { store.loadFailureNotice != nil },

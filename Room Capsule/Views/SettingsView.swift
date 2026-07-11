@@ -57,7 +57,7 @@ struct SettingsView: View {
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("すべての部屋カプセルとスキャンデータがこの iPhone から完全に削除されます。この操作は取り消せません。")
+                Text("すべての部屋カプセル・スキャン・メモ・写真・Splat データがこの iPhone から完全に削除されます。この操作は取り消せません。")
             }
         }
         .preferredColorScheme(.dark)

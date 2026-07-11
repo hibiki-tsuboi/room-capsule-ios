@@ -128,7 +128,7 @@ struct RoomDetailView: View {
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("この部屋のスキャンデータや関連ファイルはすべてこの iPhone から完全に削除されます。")
+            Text("スキャン・メモ・写真・Splat データはすべてこの iPhone から完全に削除されます。")
         }
         .confirmationDialog(
             "バージョン「\(versionDeletionTarget?.name ?? "")」を削除しますか?",
@@ -149,7 +149,7 @@ struct RoomDetailView: View {
                 versionDeletionTarget = nil
             }
         } message: {
-            Text("このバージョンのスキャンデータや関連ファイルは完全に削除されます。")
+            Text("このバージョンのスキャン・USDZ・Splat データは完全に削除されます。このバージョン限定のメモピンと家具ゴーストは「全バージョン共通」に変わります。")
         }
     }
 
