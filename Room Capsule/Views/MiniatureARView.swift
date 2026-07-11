@@ -232,7 +232,7 @@ struct MiniatureARView: View {
             return "歩いて部屋の中へ・ズレたらリセットして床をタップ"
         }
         return FeatureFlags.furnitureGhosts
-            ? "ピンチで拡大・2本指で回転・ゴーストは掴んで移動"
+            ? "ピンチで拡大・2本指で回転・仮置き家具は掴んで移動"
             : "ピンチで拡大・2本指で回転"
     }
 

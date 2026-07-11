@@ -158,7 +158,7 @@ struct RoomDetailView: View {
                 versionDeletionTarget = nil
             }
         } message: {
-            Text("このバージョンのスキャン・USDZ・Splat データは完全に削除されます。このバージョン限定のメモピンと家具ゴーストは「全バージョン共通」に変わります。")
+            Text("このバージョンのスキャン・USDZ・Splat データは完全に削除されます。このバージョン限定のメモピンと仮置き家具は「全バージョン共通」に変わります。")
         }
     }
 
@@ -285,7 +285,7 @@ struct RoomDetailView: View {
                 StatBadge(systemImage: "mappin.and.ellipse", text: "メモ \(capsule.memoPins.count)")
             }
             if FeatureFlags.furnitureGhosts {
-                StatBadge(systemImage: "sofa", text: "ゴースト \(capsule.furnitureGhosts.count)")
+                StatBadge(systemImage: "sofa", text: "仮置き \(capsule.furnitureGhosts.count)")
             }
             if FeatureFlags.splat {
                 StatBadge(
@@ -396,7 +396,7 @@ struct RoomDetailView: View {
                 }
             }
             if FeatureFlags.furnitureGhosts {
-                ModeGridButton(title: "家具ゴースト", subtitle: "未来の家具を試す", systemImage: "sofa.fill", enabled: hasVersion) {
+                ModeGridButton(title: "家具管理", subtitle: "仮置き家具でレイアウトを試す", systemImage: "sofa.fill", enabled: hasVersion) {
                     activeScreen = .ghostList
                 }
             }

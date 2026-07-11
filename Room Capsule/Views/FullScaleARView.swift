@@ -181,7 +181,7 @@ struct FullScaleARView: View {
             return "壁や家具をタップしてメモピンを置く"
         }
         return FeatureFlags.furnitureGhosts
-            ? "スライダーで透明度調整・ゴーストは掴んで移動"
+            ? "スライダーで透明度調整・仮置き家具は掴んで移動"
             : "スライダーで透明度調整"
     }
 

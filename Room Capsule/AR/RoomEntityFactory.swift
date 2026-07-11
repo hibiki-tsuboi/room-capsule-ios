@@ -416,7 +416,7 @@ enum RoomEntityFactory {
         let info = RoomPartInfo(
             id: ghost.id, kind: .furnitureGhost(ghost),
             name: name, size: ghost.size,
-            subtitle: "家具ゴースト(\(ghost.type.displayName))"
+            subtitle: "仮置き家具(\(ghost.type.displayName))"
         )
         let entity = boxPart(
             size: ghost.size, position: ghost.position, rotationY: ghost.rotationY,

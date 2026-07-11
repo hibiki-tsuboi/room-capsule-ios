@@ -26,17 +26,17 @@ struct FurnitureGhostListView: View {
                             Image(systemName: "sofa.fill")
                                 .font(.system(size: 48))
                                 .foregroundStyle(Theme.accentGradient)
-                            Text("家具ゴーストがいません")
+                            Text("仮置き家具がありません")
                                 .font(.headline)
                                 .foregroundStyle(.white)
-                            Text("「ここにベッドを置いたらどうなる?」を\n半透明のゴースト家具で試せます。")
+                            Text("「ここにベッドを置いたらどうなる?」を\n半透明の仮置き家具で試せます。")
                                 .font(.subheadline)
                                 .foregroundStyle(Color.white.opacity(0.65))
                                 .multilineTextAlignment(.center)
                             Button {
                                 showTypePicker = true
                             } label: {
-                                Label("ゴーストを追加", systemImage: "plus")
+                                Label("仮置き家具を追加", systemImage: "plus")
                             }
                             .buttonStyle(PrimaryButtonStyle())
                         }
@@ -59,7 +59,7 @@ struct FurnitureGhostListView: View {
                                         }
                                     }
                                 }
-                                Text("ゴーストはミニチュア AR・実寸 AR・3D プレビューで淡く光って表示されます。画面の中でゴーストを指で掴んでドラッグすると移動でき、位置は自動保存されます。")
+                                Text("仮置き家具はミニチュア AR・実寸 AR・3D プレビューで淡く光って表示されます。画面の中で仮置き家具を指で掴んでドラッグすると移動でき、位置は自動保存されます。")
                                     .font(.caption)
                                     .foregroundStyle(Color.white.opacity(0.5))
                                     .padding(.top, 8)
@@ -69,7 +69,7 @@ struct FurnitureGhostListView: View {
                     }
                 }
             }
-            .navigationTitle("家具ゴースト")
+            .navigationTitle("仮置き家具")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
@@ -309,14 +309,14 @@ struct FurnitureGhostEditorView: View {
                 }
 
                 Section {
-                    Button("このゴーストを削除", role: .destructive) {
+                    Button("この仮置き家具を削除", role: .destructive) {
                         showDeleteConfirm = true
                     }
                 }
             }
             .scrollContentBackground(.hidden)
             .background(Theme.backgroundTop)
-            .navigationTitle("家具ゴースト")
+            .navigationTitle("仮置き家具")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -331,7 +331,7 @@ struct FurnitureGhostEditorView: View {
                     .fontWeight(.semibold)
                 }
             }
-            .confirmationDialog("このゴーストを削除しますか?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            .confirmationDialog("この仮置き家具を削除しますか?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
                 Button("削除", role: .destructive) {
                     store.deleteGhost(ghostID: originalGhost.id, in: capsuleID)
                     dismiss()

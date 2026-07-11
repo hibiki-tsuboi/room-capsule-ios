@@ -192,7 +192,7 @@ struct RoomImmersivePreviewView: View {
     private var orbitHintText: String {
         if startsInside { return "ドラッグで見回す・ピンチで前後に移動" }
         return FeatureFlags.furnitureGhosts
-            ? "ドラッグで回転・タップで選択・ゴーストは掴んで移動"
+            ? "ドラッグで回転・タップで選択・仮置き家具は掴んで移動"
             : "ドラッグで回転・タップで選択"
     }
 
