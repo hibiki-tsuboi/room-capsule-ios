@@ -74,7 +74,7 @@ struct MemoPinListView: View {
                     }
                 }
             }
-            .navigationTitle("メモピン")
+            .navigationTitle("メモ管理")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
