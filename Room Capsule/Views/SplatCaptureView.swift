@@ -187,8 +187,8 @@ struct SplatCaptureContainer: UIViewRepresentable {
         // セッション失敗(カメラ使用不可など)を黒画面のまま放置せずエラー表示に出す
         arView.session.delegate = context.coordinator
         arView.session.run(config)
-        // シーンが完全に空だと描画がアイドル化しカメラ背景まで止まる環境があるため、
-        // 空アンカーを置いて RealityKit の描画ループを維持する
+        // 黒画面バグ調査時の保険の名残(真因は ARView の 2 枚同時マウント — CLAUDE.md の Gotchas 参照)。
+        // 非因果と確認済みだが無害なので残置
         arView.scene.addAnchor(AnchorEntity(world: SIMD3<Float>.zero))
 
         // 上層: 収集済みスプラットのライブプレビュー(タッチは透過)

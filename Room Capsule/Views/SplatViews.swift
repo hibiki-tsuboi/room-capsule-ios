@@ -393,11 +393,6 @@ struct PhotoModeView: View {
             }
         }
         .onAppear {
-            if version?.splatAsset != nil {
-                withAnimation(.easeInOut(duration: 1.4).delay(0.7)) {
-                    showSplat = true
-                }
-            }
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-autoPhotoAR") {
                 // 実際のユーザー操作(フェード完了後に「AR で置く」をタップ)に合わせて遅延
@@ -408,9 +403,14 @@ struct PhotoModeView: View {
             }
             #endif
         }
-        .onChange(of: version?.splatAsset?.id) { _, newID in
-            // スキャン / 取り込み直後は自動でフェードイン、削除されたら模型に戻す
-            withAnimation(.easeInOut(duration: 1.0)) {
+        // Splat の有無に showSplat を追従させる唯一の場所。
+        // 初回表示(old == new)は模型を見せてからゆっくり、
+        // スキャン / 取り込み / 削除の直後は短めにフェードする
+        .onChange(of: version?.splatAsset?.id, initial: true) { oldID, newID in
+            let animation: Animation = oldID == newID
+                ? .easeInOut(duration: 1.4).delay(0.7)
+                : .easeInOut(duration: 1.0)
+            withAnimation(animation) {
                 showSplat = newID != nil
             }
         }
@@ -479,6 +479,7 @@ struct PhotoModeView: View {
         } label: {
             Label("ファイルを取り込む(.ply / .splat)", systemImage: "square.and.arrow.down")
         }
+        .disabled(isImporting)
         Button {
             generateSample()
         } label: {
