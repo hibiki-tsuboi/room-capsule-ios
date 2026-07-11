@@ -59,6 +59,8 @@ xcrun simctl launch booted jp.hibiki.roomcapsule -seedDemo
 - `-autoTimeline` … 最初のカプセルの Before / After 比較を自動表示
 - `-autoSettings` … 設定シートを自動表示
 - `-autoSplat` / `-autoSplatAR` / `-autoSplatCapture` … Splat 系スタックのスモークテスト用(サンプル Splat 生成 → ビューア / Splat AR / LiDAR キャプチャを自動表示)
+- `-autoPhotoAR` … `-autoDetail -autoPhotoMode` と併用で「AR で置く」を約4秒後に自動で開く(Splat 添付済みが前提。なければ `-autoSplat` を先に一度実行)
+- `-arDiag` … スプラット AR 画面に AR セッションの診断行(カメラ時刻 / トラッキング / レイヤ不透明 / サイズ)を表示
 
 ## 使い方
 

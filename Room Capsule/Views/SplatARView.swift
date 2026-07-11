@@ -331,10 +331,12 @@ struct SplatARContainer: UIViewRepresentable {
             self.renderer = renderer // MTKView.delegate は weak なのでここで保持
 
             #if DEBUG
-            // 実機の黒画面切り分け用: カメラフレーム・トラッキング・レイヤ状態を 1 秒ごとに表示
-            diagTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.emitDiag()
+            // -arDiag 起動時のみ: カメラフレーム・トラッキング・レイヤ状態を 1 秒ごとに表示
+            if ProcessInfo.processInfo.arguments.contains("-arDiag") {
+                diagTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.emitDiag()
+                    }
                 }
             }
             #endif
