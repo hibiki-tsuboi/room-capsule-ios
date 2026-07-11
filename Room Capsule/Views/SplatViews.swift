@@ -3,266 +3,15 @@ import UniformTypeIdentifiers
 import UIKit
 import simd
 
-// MARK: - Splat インポート画面
-
-/// .ply / .splat / .spz ファイルを取り込んで部屋バージョンに紐づける
-struct SplatImportView: View {
-    @EnvironmentObject private var store: RoomCapsuleStore
-    @Environment(\.dismiss) private var dismiss
-    let capsuleID: UUID
-
-    @State private var selectedVersionID: UUID?
-    @State private var showImporter = false
-    @State private var errorMessage: String?
-    @State private var viewingAsset: SplatAsset?
-    @State private var showCapture = false
-    @State private var isImporting = false
-
-    private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
-    private var selectedVersion: RoomScanVersion? {
-        capsule?.version(id: selectedVersionID) ?? capsule?.latestVersion
-    }
-
-    private var allowedTypes: [UTType] {
-        let types = SplatImportService.supportedExtensions.compactMap { UTType(filenameExtension: $0) }
-        return types.isEmpty ? [.data] : types
-    }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                CapsuleBackground()
-
-                ScrollView {
-                    VStack(spacing: 16) {
-                        infoCard
-
-                        if let capsule {
-                            versionPicker(capsule)
-                        }
-
-                        if let version = selectedVersion {
-                            if let asset = version.splatAsset {
-                                assetCard(asset, version: version)
-                            } else {
-                                VStack(spacing: 10) {
-                                    Image(systemName: "sparkles.rectangle.stack")
-                                        .font(.system(size: 36))
-                                        .foregroundStyle(Color.white.opacity(0.4))
-                                    Text("このバージョンには Splat がまだありません")
-                                        .font(.subheadline)
-                                        .foregroundStyle(Color.white.opacity(0.7))
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 28)
-                                .glassCard(cornerRadius: 18)
-                            }
-                        }
-
-                        Button {
-                            showCapture = true
-                        } label: {
-                            Label("この部屋をスプラット化(LiDAR)", systemImage: "camera.metering.multispot")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .disabled(selectedVersion == nil)
-
-                        Button {
-                            showImporter = true
-                        } label: {
-                            Label("ファイルを取り込む", systemImage: "square.and.arrow.down")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(SecondaryButtonStyle())
-                        .disabled(selectedVersion == nil || isImporting)
-
-                        if isImporting {
-                            ProgressView("ファイルをコピー中…")
-                                .tint(Theme.accentCyan)
-                                .foregroundStyle(.white)
-                        }
-
-                        Button {
-                            generateSample()
-                        } label: {
-                            Label("サンプル Splat を生成", systemImage: "wand.and.stars")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(SecondaryButtonStyle())
-                        .disabled(selectedVersion == nil)
-
-                        Spacer(minLength: 40)
-                    }
-                    .padding()
-                }
-            }
-            .navigationTitle("Splat 管理")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("閉じる") { dismiss() }
-                }
-            }
-        }
-        .fileImporter(
-            isPresented: $showImporter,
-            allowedContentTypes: allowedTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first, let version = selectedVersion else { return }
-                isImporting = true
-                Task {
-                    do {
-                        let asset = try await Task.detached(priority: .userInitiated) {
-                            try SplatImportService.importFile(from: url, capsuleID: capsuleID)
-                        }.value
-                        do {
-                            try store.attachSplat(asset, to: capsuleID, versionID: version.id)
-                        } catch {
-                            AppFiles.removeIfExists(asset.fileURL)
-                            throw error
-                        }
-                        Haptics.success()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                    isImporting = false
-                }
-            case .failure(let error):
-                errorMessage = error.localizedDescription
-            }
-        }
-        .alert("取り込みに失敗しました", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
-        .fullScreenCover(item: $viewingAsset) { asset in
-            SplatViewerView(asset: asset)
-        }
-        .fullScreenCover(isPresented: $showCapture) {
-            if let version = selectedVersion {
-                SplatCaptureView(capsuleID: capsuleID, versionID: version.id)
-            }
-        }
-        .preferredColorScheme(.dark)
-    }
-
-    private func generateSample() {
-        guard let version = selectedVersion else { return }
-        do {
-            _ = try SampleSplatFactory.generateAndAttach(capsuleID: capsuleID, versionID: version.id, store: store)
-            Haptics.success()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private var infoCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("写真っぽい 3D(Gaussian Splatting)", systemImage: "sparkles")
-                .font(.headline)
-                .foregroundStyle(.white)
-            Text("「スプラット化」は LiDAR で面の向きまで推定しながら、この場で自分の部屋を Splat 化します。学習ベースの最高品質が欲しい場合は Scaniverse などで作った .ply / .splat を取り込んでください。")
-                .font(.subheadline)
-                .foregroundStyle(Color.white.opacity(0.7))
-            Label("このビルドは Metal による Gaussian Splatting 実レンダリングに対応しています(3DGS 属性のない .ply は点群表示、.spz は未対応)。", systemImage: "sparkles")
-                .font(.caption)
-                .foregroundStyle(Theme.accentCyan)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .glassCard(cornerRadius: 18)
-    }
-
-    private func versionPicker(_ capsule: RoomCapsule) -> some View {
-        Menu {
-            ForEach(capsule.versions.sorted(by: { $0.capturedAt < $1.capturedAt })) { version in
-                Button {
-                    selectedVersionID = version.id
-                } label: {
-                    Label(
-                        version.splatAsset == nil ? version.name : "\(version.name)(Splat あり)",
-                        systemImage: version.id == selectedVersion?.id ? "checkmark" : "clock"
-                    )
-                }
-            }
-        } label: {
-            HStack {
-                Image(systemName: "clock.arrow.circlepath")
-                    .foregroundStyle(Theme.accentCyan)
-                Text("紐づけ先: \(selectedVersion?.name ?? "バージョンなし")")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                Spacer()
-                Image(systemName: "chevron.down")
-                    .font(.caption)
-                    .foregroundStyle(Color.white.opacity(0.5))
-            }
-            .padding(14)
-            .glassCard(cornerRadius: 14)
-        }
-    }
-
-    private func assetCard(_ asset: SplatAsset, version: RoomScanVersion) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: "doc.fill")
-                    .foregroundStyle(Theme.accentPurple)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(asset.fileName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Text("\(asset.fileType.displayName)・\(asset.fileSizeText)")
-                        .font(.caption2)
-                        .foregroundStyle(Color.white.opacity(0.55))
-                }
-                Spacer()
-            }
-            Text("取り込み日時: \(asset.importedAt.formatted(date: .abbreviated, time: .shortened))")
-                .font(.caption2)
-                .foregroundStyle(Color.white.opacity(0.45))
-            HStack(spacing: 10) {
-                Button {
-                    viewingAsset = asset
-                } label: {
-                    Label("表示する", systemImage: "eye")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PrimaryButtonStyle())
-
-                Button(role: .destructive) {
-                    do {
-                        try store.detachSplat(from: capsuleID, versionID: version.id)
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                } label: {
-                    Label("削除", systemImage: "trash")
-                }
-                .buttonStyle(SecondaryButtonStyle())
-            }
-        }
-        .padding(16)
-        .glassCard(cornerRadius: 18)
-    }
-}
-
 // MARK: - Splat ビューア
 
 struct SplatViewerView: View {
     @Environment(\.dismiss) private var dismiss
     let asset: SplatAsset
-    /// PhotoModeView に埋め込むときは閉じるボタンを出さない
+    /// PhotoModeView に埋め込むときは自前のオーバーレイ(バッジ・閉じる・反転・AR ボタン)を出さず、
+    /// 上下反転は親が flipOverride で制御する
     var embedded = false
+    var flipOverride: Bool?
 
     private enum LoadState {
         case loading
@@ -278,6 +27,8 @@ struct SplatViewerView: View {
     @State private var flipUpsideDown = true
     @State private var showAR = false
 
+    private var effectiveFlip: Bool { flipOverride ?? flipUpsideDown }
+
     var body: some View {
         ZStack {
             Color(red: 0.03, green: 0.04, blue: 0.09).ignoresSafeArea()
@@ -291,7 +42,7 @@ struct SplatViewerView: View {
             case .gaussian(let cloud):
                 MetalSplatView(
                     cloud: cloud,
-                    flipUpsideDown: flipUpsideDown,
+                    flipUpsideDown: effectiveFlip,
                     onFailure: { loadState = .failed($0) }
                 )
                     .ignoresSafeArea()
@@ -306,11 +57,12 @@ struct SplatViewerView: View {
                             .font(.caption2)
                             .foregroundStyle(Color.white.opacity(0.4))
                     }
-                    .padding(.bottom, 20)
+                    // 埋め込み時は PhotoModeView の下部ボタンと重ならない高さへ
+                    .padding(.bottom, embedded ? 92 : 20)
                 }
 
             case .points(let cloud, let note):
-                SplatPointCloudView(cloud: cloud, flipUpsideDown: flipUpsideDown)
+                SplatPointCloudView(cloud: cloud, flipUpsideDown: effectiveFlip)
                     .ignoresSafeArea()
 
                 VStack {
@@ -330,7 +82,7 @@ struct SplatViewerView: View {
                             .font(.caption2)
                             .foregroundStyle(Color.white.opacity(0.4))
                     }
-                    .padding(.bottom, 20)
+                    .padding(.bottom, embedded ? 92 : 20)
                 }
 
             case .metadataOnly(let reason), .failed(let reason):
@@ -354,49 +106,49 @@ struct SplatViewerView: View {
                 .padding()
             }
 
-            VStack {
-                HStack(alignment: .top) {
-                    Label(badgeText, systemImage: "info.circle")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Theme.accentCyan)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .glassCard(cornerRadius: 12)
+            if !embedded {
+                VStack {
+                    HStack(alignment: .top) {
+                        Label(badgeText, systemImage: "info.circle")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Theme.accentCyan)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .glassCard(cornerRadius: 12)
 
-                    Spacer()
+                        Spacer()
 
-                    VStack(spacing: 10) {
-                        if !embedded {
+                        VStack(spacing: 10) {
                             CloseButton { dismiss() }
-                        }
-                        if showsFlipButton {
-                            Button {
-                                flipUpsideDown.toggle()
-                                Haptics.light()
-                            } label: {
-                                Image(systemName: "arrow.up.arrow.down")
-                                    .font(.headline)
-                                    .foregroundStyle(.white)
-                                    .padding(12)
-                                    .background(.ultraThinMaterial, in: Circle())
+                            if showsFlipButton {
+                                Button {
+                                    flipUpsideDown.toggle()
+                                    Haptics.light()
+                                } label: {
+                                    Image(systemName: "arrow.up.arrow.down")
+                                        .font(.headline)
+                                        .foregroundStyle(.white)
+                                        .padding(12)
+                                        .background(.ultraThinMaterial, in: Circle())
+                                }
                             }
-                        }
-                        if showsARButton {
-                            Button {
-                                showAR = true
-                                Haptics.medium()
-                            } label: {
-                                Image(systemName: "arkit")
-                                    .font(.headline)
-                                    .foregroundStyle(.black)
-                                    .padding(12)
-                                    .background(Theme.accentGradient, in: Circle())
+                            if showsARButton {
+                                Button {
+                                    showAR = true
+                                    Haptics.medium()
+                                } label: {
+                                    Image(systemName: "arkit")
+                                        .font(.headline)
+                                        .foregroundStyle(.black)
+                                        .padding(12)
+                                        .background(Theme.accentGradient, in: Circle())
+                                }
                             }
                         }
                     }
+                    .padding()
+                    Spacer()
                 }
-                .padding()
-                Spacer()
             }
         }
         .task(id: asset.id) {
@@ -476,7 +228,9 @@ struct SplatViewerView: View {
 
 // MARK: - 写真っぽく見るモード
 
-/// 模型がフェードアウトして、写真っぽい空間(Splat)がフェードインする演出
+/// 「写真っぽく見る」のハブ画面。
+/// Splat データがあれば模型→Splat のクロスフェード表示と AR 設置、
+/// なければその場でのデータ取得(LiDAR スキャン / ファイル取り込み / サンプル生成)に誘導する。
 struct PhotoModeView: View {
     @EnvironmentObject private var store: RoomCapsuleStore
     @Environment(\.dismiss) private var dismiss
@@ -484,11 +238,22 @@ struct PhotoModeView: View {
     let versionID: UUID?
 
     @State private var showSplat = false
-    @State private var showImport = false
+    @State private var splatFlipped = true
+    @State private var showImporter = false
+    @State private var showCapture = false
+    @State private var showAR = false
+    @State private var showDeleteConfirm = false
+    @State private var isImporting = false
+    @State private var errorMessage: String?
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var version: RoomScanVersion? {
         capsule?.version(id: versionID) ?? capsule?.latestVersion
+    }
+
+    private var allowedTypes: [UTType] {
+        let types = SplatImportService.supportedExtensions.compactMap { UTType(filenameExtension: $0) }
+        return types.isEmpty ? [.data] : types
     }
 
     var body: some View {
@@ -510,59 +275,23 @@ struct PhotoModeView: View {
                 .opacity(showSplat ? 0 : 1)
 
                 if let splat = version.splatAsset, showSplat {
-                    SplatViewerView(asset: splat, embedded: true)
+                    SplatViewerView(asset: splat, embedded: true, flipOverride: splatFlipped)
                         .transition(.opacity)
                 }
 
                 VStack {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("写真っぽく見る")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                            Text("\(capsule.name)・\(version.name)")
-                                .font(.caption)
-                                .foregroundStyle(Color.white.opacity(0.6))
-                        }
-                        .padding(12)
-                        .glassCard(cornerRadius: 14)
-                        Spacer()
-                        CloseButton { dismiss() }
-                    }
-                    .padding()
-
+                    header(capsule: capsule, version: version)
                     Spacer()
-
+                    if isImporting {
+                        ProgressView("ファイルをコピー中…")
+                            .tint(Theme.accentCyan)
+                            .foregroundStyle(.white)
+                            .padding(.bottom, 12)
+                    }
                     if version.splatAsset != nil {
-                        Button {
-                            withAnimation(.easeInOut(duration: 1.0)) {
-                                showSplat.toggle()
-                            }
-                            Haptics.medium()
-                        } label: {
-                            Label(showSplat ? "模型に戻す" : "写真っぽく見る", systemImage: showSplat ? "cube" : "sparkles")
-                        }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .padding(.bottom, 20)
+                        bottomControls
                     } else {
-                        VStack(spacing: 10) {
-                            Text("まだ Splat データがありません")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white)
-                            Text("Gaussian Splatting データ(.ply / .splat / .spz)を追加すると、この模型が写真のような空間に変わります。今は擬似カラー表示です。")
-                                .font(.caption)
-                                .foregroundStyle(Color.white.opacity(0.65))
-                                .multilineTextAlignment(.center)
-                            Button {
-                                showImport = true
-                            } label: {
-                                Label("Splat を追加", systemImage: "square.and.arrow.down")
-                            }
-                            .buttonStyle(PrimaryButtonStyle())
-                        }
-                        .padding(16)
-                        .glassCard(cornerRadius: 18)
-                        .padding()
+                        emptyStateCard
                     }
                 }
             } else {
@@ -577,8 +306,80 @@ struct PhotoModeView: View {
                 }
             }
         }
-        .sheet(isPresented: $showImport) {
-            SplatImportView(capsuleID: capsuleID)
+        .fileImporter(
+            isPresented: $showImporter,
+            allowedContentTypes: allowedTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first, let version else { return }
+                isImporting = true
+                Task {
+                    do {
+                        let asset = try await Task.detached(priority: .userInitiated) {
+                            try SplatImportService.importFile(from: url, capsuleID: capsuleID)
+                        }.value
+                        do {
+                            try store.attachSplat(asset, to: capsuleID, versionID: version.id)
+                        } catch {
+                            AppFiles.removeIfExists(asset.fileURL)
+                            throw error
+                        }
+                        Haptics.success()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                    isImporting = false
+                }
+            case .failure(let error):
+                errorMessage = error.localizedDescription
+            }
+        }
+        .alert("うまくいきませんでした", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .confirmationDialog("写真データを削除しますか?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("削除", role: .destructive) {
+                guard let version else { return }
+                do {
+                    try store.detachSplat(from: capsuleID, versionID: version.id)
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("この部屋のこのバージョンから Splat ファイルが削除されます。スキャンした模型やメモはそのまま残ります。")
+        }
+        .fullScreenCover(isPresented: $showCapture) {
+            if let version {
+                SplatCaptureView(capsuleID: capsuleID, versionID: version.id)
+            }
+        }
+        .fullScreenCover(isPresented: $showAR) {
+            if let splat = version?.splatAsset {
+                SplatARView(asset: splat)
+            } else {
+                // 条件が崩れても真っ黒な空カバーにせず、閉じられる画面を出す
+                ZStack {
+                    CapsuleBackground()
+                    ContentUnavailableView("写真データが見つかりません", systemImage: "sparkles")
+                    VStack {
+                        HStack {
+                            Spacer()
+                            CloseButton { showAR = false }
+                        }
+                        .padding()
+                        Spacer()
+                    }
+                }
+            }
         }
         .onAppear {
             if version?.splatAsset != nil {
@@ -586,6 +387,172 @@ struct PhotoModeView: View {
                     showSplat = true
                 }
             }
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-autoPhotoAR") {
+                // 実際のユーザー操作(フェード完了後に「AR で置く」をタップ)に合わせて遅延
+                Task {
+                    try? await Task.sleep(for: .seconds(4))
+                    showAR = true
+                }
+            }
+            #endif
+        }
+        .onChange(of: version?.splatAsset?.id) { _, newID in
+            // スキャン / 取り込み直後は自動でフェードイン、削除されたら模型に戻す
+            withAnimation(.easeInOut(duration: 1.0)) {
+                showSplat = newID != nil
+            }
+        }
+    }
+
+    // MARK: ヘッダー
+
+    private func header(capsule: RoomCapsule, version: RoomScanVersion) -> some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("写真っぽく見る")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                Text("\(capsule.name)・\(version.name)")
+                    .font(.caption)
+                    .foregroundStyle(Color.white.opacity(0.6))
+            }
+            .padding(12)
+            .glassCard(cornerRadius: 14)
+
+            Spacer()
+
+            VStack(spacing: 10) {
+                CloseButton { dismiss() }
+                manageMenu(version: version)
+            }
+        }
+        .padding()
+    }
+
+    /// データの取得・差し替え・削除をまとめた管理メニュー
+    private func manageMenu(version: RoomScanVersion) -> some View {
+        Menu {
+            if let asset = version.splatAsset {
+                Section("\(asset.fileName)(\(asset.fileSizeText))") {
+                    Toggle("上下を反転", isOn: $splatFlipped)
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        Label("写真データを削除", systemImage: "trash")
+                    }
+                }
+            }
+            Section("データを作り直す") {
+                acquisitionMenuItems
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .padding(12)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+    }
+
+    @ViewBuilder
+    private var acquisitionMenuItems: some View {
+        Button {
+            showCapture = true
+        } label: {
+            Label("この部屋をスキャンして作る(LiDAR)", systemImage: "camera.metering.multispot")
+        }
+        Button {
+            showImporter = true
+        } label: {
+            Label("ファイルを取り込む(.ply / .splat / .spz)", systemImage: "square.and.arrow.down")
+        }
+        Button {
+            generateSample()
+        } label: {
+            Label("サンプルデータで試す", systemImage: "wand.and.stars")
+        }
+    }
+
+    // MARK: 下部コントロール
+
+    /// Splat あり: 模型⇄写真のクロスフェードと AR 設置
+    private var bottomControls: some View {
+        HStack(spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 1.0)) {
+                    showSplat.toggle()
+                }
+                Haptics.medium()
+            } label: {
+                Label(showSplat ? "模型に戻す" : "写真っぽく見る", systemImage: showSplat ? "cube" : "sparkles")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+
+            Button {
+                showAR = true
+                Haptics.medium()
+            } label: {
+                Label("AR で置く", systemImage: "arkit")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+        }
+        .padding(.bottom, 20)
+    }
+
+    /// Splat なし: その場でデータを用意するための案内カード
+    private var emptyStateCard: some View {
+        VStack(spacing: 12) {
+            Text("まだ写真データがありません")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+            Text("データ(Gaussian Splatting)を用意すると、この模型が写真のような空間に変わります。LiDAR でこの部屋をスキャンするのがいちばん簡単です。")
+                .font(.caption)
+                .foregroundStyle(Color.white.opacity(0.65))
+                .multilineTextAlignment(.center)
+
+            Button {
+                showCapture = true
+            } label: {
+                Label("この部屋をスキャンして作る(LiDAR)", systemImage: "camera.metering.multispot")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PrimaryButtonStyle())
+
+            Button {
+                showImporter = true
+            } label: {
+                Label("ファイルを取り込む(.ply / .splat / .spz)", systemImage: "square.and.arrow.down")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(isImporting)
+
+            Button {
+                generateSample()
+            } label: {
+                Label("サンプルデータで試す", systemImage: "wand.and.stars")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(SecondaryButtonStyle())
+
+            Text("Scaniverse などで作った学習ベースの高品質データもそのまま取り込めます。")
+                .font(.caption2)
+                .foregroundStyle(Color.white.opacity(0.45))
+                .multilineTextAlignment(.center)
+        }
+        .padding(16)
+        .glassCard(cornerRadius: 18)
+        .padding()
+    }
+
+    private func generateSample() {
+        guard let version else { return }
+        do {
+            _ = try SampleSplatFactory.generateAndAttach(capsuleID: capsuleID, versionID: version.id, store: store)
+            Haptics.success()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }

@@ -10,12 +10,10 @@ enum DetailScreen: Identifiable, Hashable {
     case portal
     case inside
     case photoMode
-    case splatAR
     case timeline
     case floorPlan
     case memoList
     case ghostList
-    case splatImport
     case scanNewVersion
 
     var id: String {
@@ -26,12 +24,10 @@ enum DetailScreen: Identifiable, Hashable {
         case .portal: return "portal"
         case .inside: return "inside"
         case .photoMode: return "photoMode"
-        case .splatAR: return "splatAR"
         case .timeline: return "timeline"
         case .floorPlan: return "floorPlan"
         case .memoList: return "memoList"
         case .ghostList: return "ghostList"
-        case .splatImport: return "splatImport"
         case .scanNewVersion: return "scanNewVersion"
         }
     }
@@ -120,6 +116,9 @@ struct RoomDetailView: View {
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-autoInside") {
                 activeScreen = .inside
+            }
+            if ProcessInfo.processInfo.arguments.contains("-autoPhotoMode") {
+                activeScreen = .photoMode
             }
             #endif
         }
@@ -290,7 +289,7 @@ struct RoomDetailView: View {
             if FeatureFlags.splat {
                 StatBadge(
                     systemImage: "sparkles",
-                    text: capsule.hasSplat ? "Splat あり" : "Splat なし"
+                    text: capsule.hasSplat ? "写真データあり" : "写真データなし"
                 )
             }
             Spacer()
@@ -367,16 +366,8 @@ struct RoomDetailView: View {
                 activeScreen = .inside
             }
             if FeatureFlags.splat {
-                ModeGridButton(title: "写真っぽく見る", subtitle: "Gaussian Splatting", systemImage: "sparkles", enabled: hasVersion) {
+                ModeGridButton(title: "写真っぽく見る", subtitle: "写真のようなリアル 3D・AR", systemImage: "sparkles", enabled: hasVersion) {
                     activeScreen = .photoMode
-                }
-                ModeGridButton(
-                    title: "スプラット AR",
-                    subtitle: "写真の部屋を現実に置く",
-                    systemImage: "wand.and.rays",
-                    enabled: selectedVersion?.splatAsset != nil
-                ) {
-                    activeScreen = .splatAR
                 }
             }
             ModeGridButton(
@@ -398,11 +389,6 @@ struct RoomDetailView: View {
             if FeatureFlags.furnitureGhosts {
                 ModeGridButton(title: "家具管理", subtitle: "仮置き家具でレイアウトを試す", systemImage: "sofa.fill", enabled: hasVersion) {
                     activeScreen = .ghostList
-                }
-            }
-            if FeatureFlags.splat {
-                ModeGridButton(title: "Splat 管理", subtitle: ".ply / .splat / .spz", systemImage: "square.and.arrow.down", enabled: hasVersion) {
-                    activeScreen = .splatImport
                 }
             }
         }
@@ -432,23 +418,6 @@ struct RoomDetailView: View {
             )
         case .photoMode:
             PhotoModeView(capsuleID: capsuleID, versionID: versionID)
-        case .splatAR:
-            if let asset = selectedVersion?.splatAsset {
-                SplatARView(asset: asset)
-            } else {
-                ZStack {
-                    CapsuleBackground()
-                    ContentUnavailableView("Splat がありません", systemImage: "sparkles")
-                    VStack {
-                        HStack {
-                            Spacer()
-                            CloseButton { activeScreen = nil }
-                        }
-                        .padding()
-                        Spacer()
-                    }
-                }
-            }
         case .timeline:
             TimelineComparisonView(capsuleID: capsuleID)
         case .floorPlan:
@@ -457,8 +426,6 @@ struct RoomDetailView: View {
             MemoPinListView(capsuleID: capsuleID, preferredVersionID: versionID)
         case .ghostList:
             FurnitureGhostListView(capsuleID: capsuleID, preferredVersionID: versionID)
-        case .splatImport:
-            SplatImportView(capsuleID: capsuleID)
         case .scanNewVersion:
             RoomCaptureScanView(targetCapsuleID: capsuleID)
         }
