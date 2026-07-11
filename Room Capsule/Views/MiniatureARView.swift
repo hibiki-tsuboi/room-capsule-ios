@@ -23,6 +23,8 @@ struct MiniatureARView: View {
     @State private var snapshotToken = 0
     @State private var capturedPhoto: CapturedPhoto?
     @State private var shutterFlash = false
+    @State private var pinPlacementActive = false
+    @State private var pendingPin: PendingPinPlacement?
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var version: RoomScanVersion? {
@@ -52,12 +54,18 @@ struct MiniatureARView: View {
                     opacity: opacity,
                     resetToken: resetToken,
                     snapshotToken: snapshotToken,
+                    pinPlacementActive: pinPlacementActive,
+                    onPlacePin: { position in
+                        pendingPin = PendingPinPlacement(position: position)
+                        pinPlacementActive = false
+                    },
                     onSelectPart: { selectedPart = $0 },
                     onPlacementChange: { isPlaced in
                         placed = isPlaced
                         // 設置もリセットも常にミニチュア表示から始める(実寸状態を持ち越さない)
                         fullScale = false
                         opacity = 1.0
+                        pinPlacementActive = false
                     },
                     onGhostMoved: { ghostID, position in
                         moveGhost(ghostID: ghostID, to: position)
@@ -105,6 +113,7 @@ struct MiniatureARView: View {
                                     fullScale.toggle()
                                     if !fullScale {
                                         opacity = 1.0
+                                        pinPlacementActive = false
                                     }
                                     Haptics.medium()
                                 } label: {
@@ -118,6 +127,23 @@ struct MiniatureARView: View {
                                                 : AnyShapeStyle(.ultraThinMaterial),
                                             in: Circle()
                                         )
+                                }
+                                if fullScale && FeatureFlags.memoPins {
+                                    Button {
+                                        pinPlacementActive.toggle()
+                                        Haptics.light()
+                                    } label: {
+                                        Image(systemName: pinPlacementActive ? "mappin.circle.fill" : "mappin.circle")
+                                            .font(.headline)
+                                            .foregroundStyle(pinPlacementActive ? Color.black : Color.white)
+                                            .padding(12)
+                                            .background(
+                                                pinPlacementActive
+                                                    ? AnyShapeStyle(Theme.accentGradient)
+                                                    : AnyShapeStyle(.ultraThinMaterial),
+                                                in: Circle()
+                                            )
+                                    }
                                 }
                                 Button {
                                     takeSnapshot()
@@ -175,6 +201,13 @@ struct MiniatureARView: View {
         .sheet(item: $capturedPhoto) { photo in
             MiniatureSnapshotSheet(image: photo.image)
         }
+        .sheet(item: $pendingPin) { pending in
+            MemoPinEditorView(
+                capsuleID: capsuleID,
+                versionID: version?.id,
+                initialPosition: pending.position
+            )
+        }
     }
 
     /// フラッシュ演出 → ARView のスナップショットを撮る
@@ -192,6 +225,9 @@ struct MiniatureARView: View {
 
     private var hintText: String {
         guard placed else { return "机や床にカメラを向けて、タップでミニチュアを設置" }
+        if pinPlacementActive {
+            return "壁や家具をタップしてメモピンを置く"
+        }
         if fullScale {
             return "歩いて部屋の中へ・ズレたらリセットして床をタップ"
         }
@@ -238,6 +274,8 @@ struct MiniatureARContainer: UIViewRepresentable {
     var opacity: Float = 1.0
     var resetToken: Int
     var snapshotToken: Int = 0
+    var pinPlacementActive: Bool = false
+    var onPlacePin: (SIMD3<Float>) -> Void = { _ in }
     var onSelectPart: (RoomPartInfo?) -> Void
     var onPlacementChange: (Bool) -> Void
     var onGhostMoved: (UUID, SIMD3<Float>) -> Void = { _, _ in }
@@ -410,6 +448,15 @@ struct MiniatureARContainer: UIViewRepresentable {
 
             if container == nil {
                 place(at: point)
+                return
+            }
+            if parent.pinPlacementActive {
+                if let hit = arView.hitTest(point).first,
+                   let content = roomEntity?.findEntity(named: "RoomContent") {
+                    let localPosition = content.convert(position: hit.position, from: nil)
+                    parent.onPlacePin(localPosition)
+                    Haptics.success()
+                }
                 return
             }
             let info = selection.handleTap(at: point, in: arView)
