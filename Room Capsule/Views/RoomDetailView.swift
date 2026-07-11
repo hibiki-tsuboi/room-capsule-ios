@@ -8,6 +8,7 @@ enum DetailScreen: Identifiable, Hashable {
     case miniature
     case fullScale
     case portal
+    case inside
     case photoMode
     case splatAR
     case timeline
@@ -23,6 +24,7 @@ enum DetailScreen: Identifiable, Hashable {
         case .miniature: return "miniature"
         case .fullScale: return "fullScale"
         case .portal: return "portal"
+        case .inside: return "inside"
         case .photoMode: return "photoMode"
         case .splatAR: return "splatAR"
         case .timeline: return "timeline"
@@ -113,6 +115,13 @@ struct RoomDetailView: View {
         }
         .fullScreenCover(item: $activeScreen) { screen in
             screenView(screen)
+        }
+        .onAppear {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-autoInside") {
+                activeScreen = .inside
+            }
+            #endif
         }
         .alert("部屋の名前を変更", isPresented: $showRename) {
             TextField("部屋の名前", text: $renameText)
@@ -354,10 +363,8 @@ struct RoomDetailView: View {
             ModeGridButton(title: "ミニチュアで見る", subtitle: "ドールハウスと実寸 AR", systemImage: "cube.transparent", enabled: hasVersion) {
                 activeScreen = .miniature
             }
-            if FeatureFlags.portal {
-                ModeGridButton(title: "ポータルを開く", subtitle: "AR のドアからのぞく", systemImage: "door.left.hand.open", enabled: hasVersion) {
-                    activeScreen = .portal
-                }
+            ModeGridButton(title: "部屋の中に入る", subtitle: "中を歩いて見回す", systemImage: "figure.walk", enabled: hasVersion) {
+                activeScreen = .inside
             }
             if FeatureFlags.splat {
                 ModeGridButton(title: "写真っぽく見る", subtitle: "Gaussian Splatting", systemImage: "sparkles", enabled: hasVersion) {
@@ -384,7 +391,7 @@ struct RoomDetailView: View {
                 activeScreen = .floorPlan
             }
             if FeatureFlags.memoPins {
-                ModeGridButton(title: "メモを浮かべる", subtitle: "空間にメモピン", systemImage: "mappin.and.ellipse", enabled: hasVersion) {
+                ModeGridButton(title: "メモ管理", subtitle: "空間にメモピン", systemImage: "mappin.and.ellipse", enabled: hasVersion) {
                     activeScreen = .memoList
                 }
             }
@@ -415,6 +422,14 @@ struct RoomDetailView: View {
             FullScaleARView(capsuleID: capsuleID, versionID: versionID)
         case .portal:
             PortalARView(capsuleID: capsuleID, versionID: versionID)
+        case .inside:
+            RoomImmersivePreviewView(
+                capsuleID: capsuleID,
+                versionID: versionID,
+                initialMode: .photo,
+                startsInside: true,
+                title: "部屋の中"
+            )
         case .photoMode:
             PhotoModeView(capsuleID: capsuleID, versionID: versionID)
         case .splatAR:
