@@ -99,6 +99,7 @@ struct RoomImmersivePreviewView: View {
                                                 : AnyShapeStyle(.ultraThinMaterial),
                                             in: Circle()
                                         )
+                                        .background(Color.black.opacity(0.32), in: Circle())
                                 }
                             }
                         }

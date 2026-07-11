@@ -50,6 +50,8 @@ struct GlassCardModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // 明るい 3D 背景(部屋の壁など)の上でも白飛びしないよう黒の下地を敷く
+            .background(Color.black.opacity(0.32), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -117,6 +119,7 @@ struct CloseButton: View {
                 .font(.headline)
                 .foregroundStyle(.white)
                 .padding(12)
+                .background(Color.black.opacity(0.32), in: Circle())
                 .background(.ultraThinMaterial, in: Circle())
         }
     }
@@ -149,6 +152,7 @@ struct ModeChipsBar: View {
                                 : AnyShapeStyle(.ultraThinMaterial),
                             in: Capsule()
                         )
+                        .background(Color.black.opacity(0.32), in: Capsule())
                         .foregroundStyle(selection == mode ? Color.black : Color.white)
                     }
                 }
