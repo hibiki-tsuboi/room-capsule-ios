@@ -28,6 +28,7 @@ struct SplatARView: View {
     @State private var flipUpsideDown = true
     @State private var resetToken = 0
     @State private var showViewerFallback = false
+    @State private var diagText = ""
 
     var body: some View {
         ZStack {
@@ -78,7 +79,8 @@ struct SplatARView: View {
                         miniature: miniature,
                         resetToken: resetToken,
                         onPlacementChange: { placed = $0 },
-                        onRendererFailure: { loadState = .failed($0) }
+                        onRendererFailure: { loadState = .failed($0) },
+                        onDiag: { diagText = $0 }
                     )
                     .ignoresSafeArea()
 
@@ -137,8 +139,20 @@ struct SplatARView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .glassCard(cornerRadius: 12)
-                        .padding(.bottom, 16)
+                        .padding(.bottom, 4)
+
+                        #if DEBUG
+                        // 実機の黒画面切り分け用の診断表示(Debug ビルドのみ)
+                        if !diagText.isEmpty {
+                            Text(diagText)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(Color.green)
+                                .padding(4)
+                                .background(Color.black.opacity(0.6))
+                        }
+                        #endif
                     }
+                    .padding(.bottom, 12)
                 }
             }
         }
@@ -207,9 +221,15 @@ struct SplatARContainer: UIViewRepresentable {
     var resetToken: Int
     var onPlacementChange: (Bool) -> Void
     var onRendererFailure: (String) -> Void = { _ in }
+    var onDiag: (String) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
+    }
+
+    static func dismantleUIView(_ uiView: ARView, coordinator: Coordinator) {
+        coordinator.stopDiag()
+        uiView.session.pause()
     }
 
     func makeUIView(context: Context) -> ARView {
@@ -270,7 +290,9 @@ struct SplatARContainer: UIViewRepresentable {
     final class Coordinator: NSObject, ARSessionDelegate {
         var parent: SplatARContainer
         private weak var arView: ARView?
+        private weak var mtkView: MTKView?
         private var renderer: SplatARRenderer?
+        private var diagTimer: Timer?
         private var lastResetToken = 0
         private var lastMiniature: Bool
 
@@ -289,6 +311,7 @@ struct SplatARContainer: UIViewRepresentable {
 
         func setup(arView: ARView, mtkView: MTKView) {
             self.arView = arView
+            self.mtkView = mtkView
             let renderer: SplatARRenderer
             do {
                 renderer = try SplatARRenderer(cloud: parent.cloud)
@@ -303,8 +326,43 @@ struct SplatARContainer: UIViewRepresentable {
             renderer.flipUpsideDown = parent.flipUpsideDown
             mtkView.device = renderer.device
             mtkView.delegate = renderer
+            // device 割り当てで MTKView がレイヤ設定を作り直す場合に備え、透明を再指定
+            mtkView.layer.isOpaque = false
             self.renderer = renderer // MTKView.delegate は weak なのでここで保持
+
+            #if DEBUG
+            // 実機の黒画面切り分け用: カメラフレーム・トラッキング・レイヤ状態を 1 秒ごとに表示
+            diagTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.emitDiag()
+                }
+            }
+            #endif
         }
+
+        func stopDiag() {
+            diagTimer?.invalidate()
+            diagTimer = nil
+        }
+
+        #if DEBUG
+        private func emitDiag() {
+            guard let arView, let mtkView else { return }
+            let frame = arView.session.currentFrame
+            let timestamp = frame.map { String(format: "%.1f", $0.timestamp) } ?? "nil"
+            let tracking: String
+            switch frame?.camera.trackingState {
+            case .normal: tracking = "normal"
+            case .limited(let reason): tracking = "limited(\(reason))"
+            case .notAvailable: tracking = "notAvail"
+            case nil: tracking = "-"
+            }
+            parent.onDiag(
+                "cam ts:\(timestamp) track:\(tracking) mtkOpaque:\(mtkView.layer.isOpaque)"
+                + " size:\(Int(arView.bounds.width))x\(Int(arView.bounds.height)) win:\(arView.window != nil)"
+            )
+        }
+        #endif
 
         func sync() {
             guard let renderer else { return }

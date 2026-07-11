@@ -250,6 +250,8 @@ struct SplatCaptureContainer: UIViewRepresentable {
                 renderer.arSession = arView.session
                 mtkView.device = renderer.device
                 mtkView.delegate = renderer
+                // device 割り当てで MTKView がレイヤ設定を作り直す場合に備え、透明を再指定
+                mtkView.layer.isOpaque = false
                 previewRenderer = renderer // MTKView.delegate は weak なのでここで保持
             } catch {
                 parent.onFailure("ライブプレビューを初期化できませんでした: \(error.localizedDescription)")

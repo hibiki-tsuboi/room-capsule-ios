@@ -265,18 +265,23 @@ struct PhotoModeView: View {
             Color.black.ignoresSafeArea()
 
             if let capsule, let version {
-                RoomPreviewARContainer(
-                    geometry: version.simplifiedGeometry,
-                    pins: [],
-                    ghosts: capsule.ghosts(forVersion: version.id),
-                    mode: .photo,
-                    startsInside: false,
-                    pinPlacementActive: false,
-                    onSelectPart: { _ in },
-                    onPlacePin: { _ in }
-                )
-                .ignoresSafeArea()
-                .opacity(showSplat ? 0 : 1)
+                // AR / キャプチャのカバー表示中は模型のプレビュー(nonAR の ARView)も解体する。
+                // RealityKit の ARView を 2 枚同時に生かすとカバー側のカメラ背景の描画を
+                // 阻害する疑いがあるため(資源節約も兼ねる。閉じたら再マウントされる)
+                if !showAR, !showCapture {
+                    RoomPreviewARContainer(
+                        geometry: version.simplifiedGeometry,
+                        pins: [],
+                        ghosts: capsule.ghosts(forVersion: version.id),
+                        mode: .photo,
+                        startsInside: false,
+                        pinPlacementActive: false,
+                        onSelectPart: { _ in },
+                        onPlacePin: { _ in }
+                    )
+                    .ignoresSafeArea()
+                    .opacity(showSplat ? 0 : 1)
+                }
 
                 // AR / キャプチャのカバー表示中は解体してメモリと描画ループを解放する
                 // (点群2コピー+Metal ループ2本の同時常駐を避ける。閉じたら再ロードされる)
