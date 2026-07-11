@@ -45,9 +45,9 @@ project's established smoke-test convention, not test code.
 
 - AR screens show their fallback UI in the simulator — that fallback *is* the
   expected simulator behavior, not a failure.
-- The walk-in view (`startsInside: true`, photo mode) opens facing the largest
-  furniture piece with a wide-angle (85°) camera; with no furniture it faces
-  straight ahead and may show a blank wall. Two identical screenshots a minute
-  apart = settled state, not a stuck intro fade.
+- The walk-in view (`startsInside: true`, photo mode) starts on a dollhouse
+  overview and flies down (~2.4s incl. hold) to a wide-angle (85°) standpoint
+  facing the largest furniture piece. Screenshot before ~3s catches the flight;
+  gestures are ignored until it lands.
 - Multiple DerivedData dirs exist; a stale template build will launch if you
   locate the .app with `find`.

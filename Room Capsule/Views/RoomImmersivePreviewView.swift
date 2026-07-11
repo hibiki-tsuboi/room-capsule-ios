@@ -6,7 +6,7 @@ import simd
 // MARK: - 3D プレビュー画面
 
 /// AR ではない 3D プレビュー。シミュレータや AR 非対応端末でも動く。
-/// ポータルから「中に入った」ときの部屋内ビューとしても使う。
+/// 「部屋の中に入る」(startsInside)の部屋内ビューとしても使う。
 struct RoomImmersivePreviewView: View {
     @EnvironmentObject private var store: RoomCapsuleStore
     @Environment(\.dismiss) private var dismiss
@@ -20,9 +20,6 @@ struct RoomImmersivePreviewView: View {
     @State private var selectedPart: RoomPartInfo?
     @State private var pinPlacementActive = false
     @State private var pendingPin: PendingPinPlacement?
-    /// ポータル出入りのトランジション(白フェード)
-    @State private var introFlash: Bool
-    @State private var exitFlash = false
 
     init(
         capsuleID: UUID,
@@ -36,7 +33,6 @@ struct RoomImmersivePreviewView: View {
         self.startsInside = startsInside
         self.title = title
         _mode = State(initialValue: initialMode)
-        _introFlash = State(initialValue: startsInside)
     }
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
@@ -87,7 +83,7 @@ struct RoomImmersivePreviewView: View {
                         Spacer()
 
                         VStack(spacing: 10) {
-                            CloseButton { closeTapped() }
+                            CloseButton { dismiss() }
                             if FeatureFlags.memoPins {
                                 Button {
                                     pinPlacementActive.toggle()
@@ -152,18 +148,6 @@ struct RoomImmersivePreviewView: View {
                 }
             }
 
-            // ポータル出入り用の白フェード
-            Color.white
-                .ignoresSafeArea()
-                .opacity(introFlash || exitFlash ? 1 : 0)
-                .allowsHitTesting(false)
-        }
-        .onAppear {
-            if startsInside {
-                withAnimation(.easeOut(duration: 0.9).delay(0.1)) {
-                    introFlash = false
-                }
-            }
         }
         .sheet(item: $pendingPin) { pending in
             MemoPinEditorView(
@@ -171,21 +155,6 @@ struct RoomImmersivePreviewView: View {
                 versionID: version?.id,
                 initialPosition: pending.position
             )
-        }
-    }
-
-    /// ポータルから入った場合は白フェードしてから閉じる
-    private func closeTapped() {
-        guard startsInside else {
-            dismiss()
-            return
-        }
-        withAnimation(.easeIn(duration: 0.22)) {
-            exitFlash = true
-        }
-        Task {
-            try? await Task.sleep(nanoseconds: 240_000_000)
-            dismiss()
         }
     }
 
@@ -266,7 +235,9 @@ struct RoomPreviewARContainer: UIViewRepresentable {
         private var insideEye: SIMD3<Float> = [0, 1.4, 0]
         private var draggingGhost: (entity: ModelEntity, ghostID: UUID)?
         private var rotatingGhost: (entity: ModelEntity, ghostID: UUID)?
-        private var dollyTimer: Timer?
+        private var flyInTimer: Timer?
+        /// フライイン演出中はカメラ操作を受け付けない
+        private var isFlyingIn = false
 
         init(_ parent: RoomPreviewARContainer) {
             self.parent = parent
@@ -310,7 +281,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
             refreshContentIfNeeded(force: true)
             updateCamera()
             if parent.startsInside {
-                startDollyIn()
+                startFlyIn()
             }
         }
 
@@ -355,7 +326,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
         // MARK: ジェスチャ
 
         @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
-            guard let view = recognizer.view, let arView else { return }
+            guard !isFlyingIn, let view = recognizer.view, let arView else { return }
             let point = recognizer.location(in: view)
 
             // ゴーストの上からドラッグを始めたら、カメラではなくゴーストを動かす
@@ -438,34 +409,48 @@ struct RoomPreviewARContainer: UIViewRepresentable {
             ]
         }
 
-        /// 入室時、視線方向に沿って立ち位置へ歩き入るカメラ演出
-        private func startDollyIn() {
+        /// 入室時、部屋全体の俯瞰から立ち位置へ降りていくカメラ演出。
+        /// 最初のフレームから部屋全体が見えるので、いきなり壁のアップで混乱させない
+        private func startFlyIn() {
+            guard let camera = cameraEntity else { return }
             let size = parent.geometry.approximateSize
-            let startDistance = min(min(size.x, size.z) * 0.32, 1.2)
-            let direction = SIMD3<Float>(sin(yaw), 0, -cos(yaw))
             let finalEye = insideEye
-            var startEye = finalEye - direction * startDistance
-            startEye.x = min(max(startEye.x, -size.x / 2 + 0.1), size.x / 2 - 0.1)
-            startEye.z = min(max(startEye.z, -size.z / 2 + 0.1), size.z / 2 - 0.1)
+            let finalTarget = finalEye + SIMD3<Float>(
+                cos(pitch) * sin(yaw),
+                sin(pitch),
+                -cos(pitch) * cos(yaw)
+            )
+            // 立ち位置の頭上後方から部屋の中心を見下ろす俯瞰で開始する
+            let overviewTarget = SIMD3<Float>(0, size.y * 0.25, 0)
+            let planar = SIMD2(finalEye.x, finalEye.z)
+            let outward = simd_length(planar) > 0.001 ? simd_normalize(planar) : SIMD2<Float>(0, 1)
+            let overviewEye = SIMD3<Float>(
+                outward.x * baseRadius * 0.55,
+                baseRadius * 0.7,
+                outward.y * baseRadius * 0.55
+            )
+            isFlyingIn = true
+            camera.look(at: overviewTarget, from: overviewEye, relativeTo: nil)
+
             let start = Date()
-            let duration: Double = 1.4
-            insideEye.x = startEye.x
-            insideEye.z = startEye.z
-            updateCamera()
-            dollyTimer?.invalidate()
-            dollyTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            let holdDelay: Double = 0.5   // 俯瞰を一拍見せてから降りる
+            let duration: Double = 1.9
+            flyInTimer?.invalidate()
+            flyInTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
                 MainActor.assumeIsolated {
-                    guard let self else {
+                    guard let self, let camera = self.cameraEntity else {
                         timer.invalidate()
                         return
                     }
-                    let t = min(Date().timeIntervalSince(start) / duration, 1)
-                    let eased = Float(1 - pow(1 - t, 3))
-                    self.insideEye.x = startEye.x + (finalEye.x - startEye.x) * eased
-                    self.insideEye.z = startEye.z + (finalEye.z - startEye.z) * eased
-                    self.updateCamera()
+                    let t = min(max(Date().timeIntervalSince(start) - holdDelay, 0) / duration, 1)
+                    let eased = Float(t * t * (3 - 2 * t))   // smoothstep
+                    let eye = simd_mix(overviewEye, finalEye, SIMD3<Float>(repeating: eased))
+                    let target = simd_mix(overviewTarget, finalTarget, SIMD3<Float>(repeating: eased))
+                    camera.look(at: target, from: eye, relativeTo: nil)
                     if t >= 1 {
                         timer.invalidate()
+                        self.isFlyingIn = false
+                        self.updateCamera()
                     }
                 }
             }
@@ -498,6 +483,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
         }
 
         @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+            guard !isFlyingIn else { return }
             let scale = Float(recognizer.scale)
             recognizer.scale = 1
             if parent.startsInside {
