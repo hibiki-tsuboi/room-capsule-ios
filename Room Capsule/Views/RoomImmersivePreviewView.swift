@@ -280,7 +280,8 @@ struct RoomPreviewARContainer: UIViewRepresentable {
             worldAnchor = anchor
 
             let camera = PerspectiveCamera()
-            camera.camera.fieldOfViewInDegrees = 60
+            // 部屋の中では縦持ちの水平視野が狭くなりすぎるため広角にする
+            camera.camera.fieldOfViewInDegrees = parent.startsInside ? 85 : 60
             anchor.addChild(camera)
             cameraEntity = camera
 
@@ -319,8 +320,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
             baseRadius = max(simd_length(size) * 1.5, 3.5)
             if parent.startsInside {
                 insideEye = [0, min(1.5, size.y * 0.6), 0]
-                yaw = 0
-                pitch = 0
+                aimAtFurniture()
             } else {
                 radius = baseRadius
                 yaw = -0.7
@@ -400,13 +400,57 @@ struct RoomPreviewARContainer: UIViewRepresentable {
             updateCamera()
         }
 
-        /// ポータルから入ったとき、ドアから部屋の中心へ歩き入るカメラ演出
+        /// 入室直後に一番大きな家具が視界に収まるよう、家具の反対側に立って視線を向ける。家具がなければ正面
+        private func aimAtFurniture() {
+            guard let target = largestFurnitureCenter() else {
+                yaw = 0
+                pitch = 0
+                return
+            }
+            let size = parent.geometry.approximateSize
+            let toFurniture = SIMD2(target.x, target.z)
+            let planarDistance = simd_length(toFurniture)
+            if planarDistance > 0.001 {
+                let backoff = min(min(size.x, size.z) * 0.45, 2.2)
+                var eyeXZ = -(toFurniture / planarDistance) * backoff
+                eyeXZ.x = min(max(eyeXZ.x, -size.x / 2 + 0.2), size.x / 2 - 0.2)
+                eyeXZ.y = min(max(eyeXZ.y, -size.z / 2 + 0.2), size.z / 2 - 0.2)
+                insideEye.x = eyeXZ.x
+                insideEye.z = eyeXZ.y
+            }
+            let dx = target.x - insideEye.x
+            let dz = target.z - insideEye.z
+            yaw = atan2(dx, -dz)
+            let horizontalDistance = max(simd_length(SIMD2(dx, dz)), 0.001)
+            pitch = min(max(atan2(target.y - insideEye.y, horizontalDistance), -0.7), 0.2)
+        }
+
+        /// 表示座標系(水平中心が原点・床が y=0)での体積最大の家具の中心
+        private func largestFurnitureCenter() -> SIMD3<Float>? {
+            guard let largest = parent.geometry.furniture.max(by: {
+                $0.size.x * $0.size.y * $0.size.z < $1.size.x * $1.size.y * $1.size.z
+            }) else { return nil }
+            let center = parent.geometry.horizontalCenter
+            return [
+                largest.position.x - center.x,
+                largest.position.y - parent.geometry.floorY,
+                largest.position.z - center.y
+            ]
+        }
+
+        /// 入室時、視線方向に沿って立ち位置へ歩き入るカメラ演出
         private func startDollyIn() {
             let size = parent.geometry.approximateSize
-            let startZ = min(size.z * 0.32, 1.2)
+            let startDistance = min(min(size.x, size.z) * 0.32, 1.2)
+            let direction = SIMD3<Float>(sin(yaw), 0, -cos(yaw))
+            let finalEye = insideEye
+            var startEye = finalEye - direction * startDistance
+            startEye.x = min(max(startEye.x, -size.x / 2 + 0.1), size.x / 2 - 0.1)
+            startEye.z = min(max(startEye.z, -size.z / 2 + 0.1), size.z / 2 - 0.1)
             let start = Date()
             let duration: Double = 1.4
-            insideEye.z = startZ
+            insideEye.x = startEye.x
+            insideEye.z = startEye.z
             updateCamera()
             dollyTimer?.invalidate()
             dollyTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
@@ -417,7 +461,8 @@ struct RoomPreviewARContainer: UIViewRepresentable {
                     }
                     let t = min(Date().timeIntervalSince(start) / duration, 1)
                     let eased = Float(1 - pow(1 - t, 3))
-                    self.insideEye.z = startZ * (1 - eased)
+                    self.insideEye.x = startEye.x + (finalEye.x - startEye.x) * eased
+                    self.insideEye.z = startEye.z + (finalEye.z - startEye.z) * eased
                     self.updateCamera()
                     if t >= 1 {
                         timer.invalidate()
