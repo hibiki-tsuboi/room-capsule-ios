@@ -64,8 +64,13 @@ struct SplatARView: View {
                             .font(.subheadline)
                             .foregroundStyle(Color.white.opacity(0.7))
                             .multilineTextAlignment(.center)
+                        Button("もう一度試す") {
+                            loadState = .loading
+                            Task { await load() }
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
                         Button("ビューアで見る") { showViewerFallback = true }
-                            .buttonStyle(PrimaryButtonStyle())
+                            .buttonStyle(SecondaryButtonStyle())
                     }
                     .padding(26)
                     .glassCard(cornerRadius: 24)

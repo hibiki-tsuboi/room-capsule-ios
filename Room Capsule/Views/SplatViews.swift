@@ -246,10 +246,14 @@ struct PhotoModeView: View {
     @State private var showDeleteConfirm = false
     @State private var isImporting = false
     @State private var errorMessage: String?
+    /// 画面内でバージョンを切り替えたとき(タイトルカードのメニュー)の選択。nil なら呼び出し元の指定に従う
+    @State private var selectedVersionID: UUID?
 
     private var capsule: RoomCapsule? { store.capsule(id: capsuleID) }
     private var version: RoomScanVersion? {
-        capsule?.version(id: versionID) ?? capsule?.latestVersion
+        capsule?.version(id: selectedVersionID)
+            ?? capsule?.version(id: versionID)
+            ?? capsule?.latestVersion
     }
 
     private var allowedTypes: [UTType] {
@@ -421,16 +425,26 @@ struct PhotoModeView: View {
 
     private func header(capsule: RoomCapsule, version: RoomScanVersion) -> some View {
         HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("写真っぽく見る")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text("\(capsule.name)・\(version.name)")
-                    .font(.caption)
-                    .foregroundStyle(Color.white.opacity(0.6))
+            // 複数バージョンがあるときはタイトルカードがバージョン切替メニューになる
+            // (どのバージョンに写真データがあるかもここで分かる)
+            if capsule.versions.count > 1 {
+                Menu {
+                    ForEach(capsule.versions.sorted(by: { $0.capturedAt < $1.capturedAt })) { candidate in
+                        Button {
+                            selectedVersionID = candidate.id
+                        } label: {
+                            Label(
+                                candidate.splatAsset == nil ? candidate.name : "\(candidate.name)(写真データあり)",
+                                systemImage: candidate.id == version.id ? "checkmark" : "clock"
+                            )
+                        }
+                    }
+                } label: {
+                    titleCard(capsule: capsule, version: version, showsChevron: true)
+                }
+            } else {
+                titleCard(capsule: capsule, version: version, showsChevron: false)
             }
-            .padding(12)
-            .glassCard(cornerRadius: 14)
 
             Spacer()
 
@@ -440,6 +454,26 @@ struct PhotoModeView: View {
             }
         }
         .padding()
+    }
+
+    private func titleCard(capsule: RoomCapsule, version: RoomScanVersion, showsChevron: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("写真っぽく見る")
+                .font(.headline)
+                .foregroundStyle(.white)
+            HStack(spacing: 4) {
+                Text("\(capsule.name)・\(version.name)")
+                    .font(.caption)
+                    .foregroundStyle(Color.white.opacity(0.6))
+                if showsChevron {
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(Color.white.opacity(0.5))
+                }
+            }
+        }
+        .padding(12)
+        .glassCard(cornerRadius: 14)
     }
 
     /// データの取得・差し替え・削除をまとめた管理メニュー
@@ -523,6 +557,14 @@ struct PhotoModeView: View {
                 .font(.caption)
                 .foregroundStyle(Color.white.opacity(0.65))
                 .multilineTextAlignment(.center)
+
+            // このバージョンにはなくても、別バージョンに写真データがあるなら案内する
+            if let other = capsule?.versions.first(where: { $0.splatAsset != nil }) {
+                Text("「\(other.name)」には写真データがあります。左上のタイトルから切り替えられます。")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.accentCyan)
+                    .multilineTextAlignment(.center)
+            }
 
             Button {
                 showCapture = true
