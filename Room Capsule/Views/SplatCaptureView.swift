@@ -155,12 +155,12 @@ struct SplatCaptureContainer: UIViewRepresentable {
         Coordinator(self)
     }
 
-    func makeUIView(context: Context) -> UIView {
-        let root = UIView()
-
-        // 下層: カメラ映像 + LiDAR 深度
+    func makeUIView(context: Context) -> ARView {
+        // 実機でカメラ表示の実績がある MiniatureARView と同じく ARView 自体を返し、
+        // ライブプレビューの MTKView はその subview にする
         let arView = ARView(frame: .zero)
-        arView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // カメラ背景を明示(既定値のはずだが、黒背景フォールバックを防ぐ保険)
+        arView.environment.background = .cameraFeed()
         let config = ARWorldTrackingConfiguration()
         if ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
             config.frameSemantics = .smoothedSceneDepth
@@ -168,30 +168,35 @@ struct SplatCaptureContainer: UIViewRepresentable {
             config.frameSemantics = .sceneDepth
         }
         arView.session.run(config)
-        root.addSubview(arView)
+        // シーンが完全に空だと描画がアイドル化しカメラ背景まで止まる環境があるため、
+        // 空アンカーを置いて RealityKit の描画ループを維持する
+        arView.scene.addAnchor(AnchorEntity(world: SIMD3<Float>.zero))
 
         // 上層: 収集済みスプラットのライブプレビュー(タッチは透過)
         let mtkView = MTKView()
+        mtkView.frame = arView.bounds
         mtkView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         mtkView.colorPixelFormat = .bgra8Unorm
         mtkView.preferredFramesPerSecond = 60
         mtkView.isOpaque = false
+        // CAMetalLayer 側にも明示(不透明だと透明クリアでも黒く合成され、下のカメラ映像が隠れる)
+        mtkView.layer.isOpaque = false
         mtkView.backgroundColor = .clear
         mtkView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         mtkView.isUserInteractionEnabled = false
-        root.addSubview(mtkView)
+        arView.addSubview(mtkView)
 
         context.coordinator.start(arView: arView, mtkView: mtkView)
-        return root
+        return arView
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIView(_ uiView: ARView, context: Context) {
         context.coordinator.parent = self
         context.coordinator.syncPreviewVisibility()
         context.coordinator.handleFinishTokenIfNeeded()
     }
 
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+    static func dismantleUIView(_ uiView: ARView, coordinator: Coordinator) {
         coordinator.stop()
     }
 

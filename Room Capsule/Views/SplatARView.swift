@@ -5,6 +5,7 @@ import Metal
 import MetalKit
 import UIKit
 import simd
+import AVFoundation
 
 // MARK: - スプラット AR 画面
 
@@ -173,6 +174,12 @@ struct SplatARView: View {
             loadState = .failed(".spz はこのビルドでは未対応です")
             return
         }
+        // カメラ権限がないと ARView は黒画面のまま何も起きないので、先に検知して案内する
+        let cameraAuth = AVCaptureDevice.authorizationStatus(for: .video)
+        if ARCapabilities.isARSupported, cameraAuth == .denied || cameraAuth == .restricted {
+            loadState = .failed("カメラへのアクセスが許可されていません。設定 > プライバシーとセキュリティ > カメラ で Room Capsule を有効にしてください。")
+            return
+        }
         let url = asset.fileURL
         let fileType = asset.fileType
         do {
@@ -204,34 +211,42 @@ struct SplatARContainer: UIViewRepresentable {
         Coordinator(self)
     }
 
-    func makeUIView(context: Context) -> UIView {
-        let root = UIView()
-
-        // 下層: カメラ映像・平面検出・コーチング(RealityKit のコンテンツは置かない)
+    func makeUIView(context: Context) -> ARView {
+        // 実機でカメラ表示の実績がある MiniatureARView と同じく ARView 自体を返し、
+        // オーバーレイ(スプラット MTKView・コーチング)はその subview にする
         let arView = ARView(frame: .zero)
-        arView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // カメラ背景を明示(既定値のはずだが、黒背景フォールバックを防ぐ保険)
+        arView.environment.background = .cameraFeed()
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal]
+        // セッション失敗(カメラ使用不可など)を黒画面のまま放置せずエラーカードに出す
+        arView.session.delegate = context.coordinator
         arView.session.run(config)
-        root.addSubview(arView)
+        // シーンが完全に空だと描画がアイドル化しカメラ背景まで止まる環境があるため、
+        // 空アンカーを置いて RealityKit の描画ループを維持する
+        arView.scene.addAnchor(AnchorEntity(world: SIMD3<Float>.zero))
 
+        // 上層: 透明な MTKView にスプラットを描画(タッチは下の ARView へ通す)
+        let mtkView = MTKView()
+        mtkView.frame = arView.bounds
+        mtkView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        mtkView.colorPixelFormat = .bgra8Unorm
+        mtkView.preferredFramesPerSecond = 60
+        mtkView.isOpaque = false
+        // CAMetalLayer 側にも明示(不透明だと透明クリアでも黒く合成され、下のカメラ映像が隠れる)
+        mtkView.layer.isOpaque = false
+        mtkView.backgroundColor = .clear
+        mtkView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        mtkView.isUserInteractionEnabled = false
+        arView.addSubview(mtkView)
+
+        // コーチングはスプラットより前面(案内が隠れないように)
         let coaching = ARCoachingOverlayView()
         coaching.session = arView.session
         coaching.goal = .horizontalPlane
         coaching.frame = arView.bounds
         coaching.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         arView.addSubview(coaching)
-
-        // 上層: 透明な MTKView にスプラットを描画(タッチは下の ARView へ通す)
-        let mtkView = MTKView()
-        mtkView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        mtkView.colorPixelFormat = .bgra8Unorm
-        mtkView.preferredFramesPerSecond = 60
-        mtkView.isOpaque = false
-        mtkView.backgroundColor = .clear
-        mtkView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
-        mtkView.isUserInteractionEnabled = false
-        root.addSubview(mtkView)
 
         context.coordinator.setup(arView: arView, mtkView: mtkView)
 
@@ -242,16 +257,16 @@ struct SplatARContainer: UIViewRepresentable {
         pan.maximumNumberOfTouches = 1
         arView.addGestureRecognizer(pan)
 
-        return root
+        return arView
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIView(_ uiView: ARView, context: Context) {
         context.coordinator.parent = self
         context.coordinator.sync()
     }
 
     @MainActor
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, ARSessionDelegate {
         var parent: SplatARContainer
         private weak var arView: ARView?
         private var renderer: SplatARRenderer?
@@ -340,6 +355,15 @@ struct SplatARContainer: UIViewRepresentable {
             else { return }
             let t = result.worldTransform.columns.3
             renderer.position = [t.x, t.y, t.z]
+        }
+
+        // MARK: ARSessionDelegate
+
+        nonisolated func session(_ session: ARSession, didFailWithError error: Error) {
+            let message = error.localizedDescription
+            Task { @MainActor [weak self] in
+                self?.parent.onRendererFailure(message)
+            }
         }
     }
 }
