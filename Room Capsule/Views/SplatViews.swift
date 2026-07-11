@@ -157,6 +157,7 @@ struct SplatViewerView: View {
         .fullScreenCover(isPresented: $showAR) {
             SplatARView(asset: asset)
         }
+        .preferredColorScheme(.dark)
     }
 
     /// 実レンダリング中かつ AR 対応端末なら「AR で置く」を出す
@@ -252,7 +253,10 @@ struct PhotoModeView: View {
     }
 
     private var allowedTypes: [UTType] {
-        let types = SplatImportService.supportedExtensions.compactMap { UTType(filenameExtension: $0) }
+        // .spz は取り込めても描画未対応(gzip 展開未実装)で行き止まりになるため、ピッカーから除外する
+        let types = SplatImportService.supportedExtensions
+            .filter { $0 != "spz" }
+            .compactMap { UTType(filenameExtension: $0) }
         return types.isEmpty ? [.data] : types
     }
 
@@ -274,7 +278,9 @@ struct PhotoModeView: View {
                 .ignoresSafeArea()
                 .opacity(showSplat ? 0 : 1)
 
-                if let splat = version.splatAsset, showSplat {
+                // AR / キャプチャのカバー表示中は解体してメモリと描画ループを解放する
+                // (点群2コピー+Metal ループ2本の同時常駐を避ける。閉じたら再ロードされる)
+                if let splat = version.splatAsset, showSplat, !showAR, !showCapture {
                     SplatViewerView(asset: splat, embedded: true, flipOverride: splatFlipped)
                         .transition(.opacity)
                 }
@@ -403,6 +409,7 @@ struct PhotoModeView: View {
                 showSplat = newID != nil
             }
         }
+        .preferredColorScheme(.dark)
     }
 
     // MARK: ヘッダー
@@ -465,7 +472,7 @@ struct PhotoModeView: View {
         Button {
             showImporter = true
         } label: {
-            Label("ファイルを取り込む(.ply / .splat / .spz)", systemImage: "square.and.arrow.down")
+            Label("ファイルを取り込む(.ply / .splat)", systemImage: "square.and.arrow.down")
         }
         Button {
             generateSample()
@@ -522,7 +529,7 @@ struct PhotoModeView: View {
             Button {
                 showImporter = true
             } label: {
-                Label("ファイルを取り込む(.ply / .splat / .spz)", systemImage: "square.and.arrow.down")
+                Label("ファイルを取り込む(.ply / .splat)", systemImage: "square.and.arrow.down")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(SecondaryButtonStyle())

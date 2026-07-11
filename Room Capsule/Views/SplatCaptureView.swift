@@ -5,6 +5,7 @@ import Metal
 import MetalKit
 import UIKit
 import simd
+import AVFoundation
 
 // MARK: - LiDAR 簡易スプラットスキャン画面
 
@@ -23,6 +24,12 @@ struct SplatCaptureView: View {
     @State private var previewVisible = true
     @State private var errorMessage: String?
 
+    /// カメラ権限が拒否されていると ARView は黒画面のまま何も起きないので、先に検知して案内する
+    private var isCameraBlocked: Bool {
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        return status == .denied || status == .restricted
+    }
+
     var body: some View {
         ZStack {
             if !LiDARSplatAccumulator.isSupported {
@@ -30,6 +37,15 @@ struct SplatCaptureView: View {
                 ARUnavailableCard(
                     title: "この端末ではスキャンできません",
                     message: "LiDAR スプラットスキャンには LiDAR 搭載の iPhone / iPad(Pro 系)が必要です。Scaniverse などで作った .ply / .splat の取り込みは引き続き使えます。",
+                    actionTitle: "閉じる"
+                ) {
+                    dismiss()
+                }
+            } else if isCameraBlocked {
+                CapsuleBackground()
+                ARUnavailableCard(
+                    title: "カメラを使えません",
+                    message: "スキャンにはカメラが必要です。設定 > プライバシーとセキュリティ > カメラ で Room Capsule を有効にしてください。",
                     actionTitle: "閉じる"
                 ) {
                     dismiss()
@@ -114,7 +130,7 @@ struct SplatCaptureView: View {
                 }
             }
         }
-        .alert("保存に失敗しました", isPresented: Binding(
+        .alert("うまくいきませんでした", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -122,6 +138,7 @@ struct SplatCaptureView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .preferredColorScheme(.dark)
     }
 
     private func save(data: Data, count: Int) {
@@ -167,6 +184,8 @@ struct SplatCaptureContainer: UIViewRepresentable {
         } else {
             config.frameSemantics = .sceneDepth
         }
+        // セッション失敗(カメラ使用不可など)を黒画面のまま放置せずエラー表示に出す
+        arView.session.delegate = context.coordinator
         arView.session.run(config)
         // シーンが完全に空だと描画がアイドル化しカメラ背景まで止まる環境があるため、
         // 空アンカーを置いて RealityKit の描画ループを維持する
@@ -201,7 +220,7 @@ struct SplatCaptureContainer: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, ARSessionDelegate {
         var parent: SplatCaptureContainer
         private weak var arView: ARView?
         private weak var mtkView: MTKView?
@@ -248,6 +267,15 @@ struct SplatCaptureContainer: UIViewRepresentable {
             captureTimer?.invalidate()
             captureTimer = nil
             arView?.session.pause()
+        }
+
+        // MARK: ARSessionDelegate
+
+        nonisolated func session(_ session: ARSession, didFailWithError error: Error) {
+            let message = error.localizedDescription
+            Task { @MainActor [weak self] in
+                self?.parent.onFailure("スキャンを続けられません: \(message)")
+            }
         }
 
         func syncPreviewVisibility() {

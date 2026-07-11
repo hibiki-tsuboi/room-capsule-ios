@@ -148,6 +148,7 @@ struct SplatARView: View {
         .fullScreenCover(isPresented: $showViewerFallback) {
             SplatViewerView(asset: asset)
         }
+        .preferredColorScheme(.dark)
     }
 
     private func arIconLabel(_ systemName: String) -> some View {
