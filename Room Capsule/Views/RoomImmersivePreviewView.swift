@@ -435,6 +435,7 @@ struct RoomPreviewARContainer: UIViewRepresentable {
             let start = Date()
             let holdDelay: Double = 0.5   // 俯瞰を一拍見せてから降りる
             let duration: Double = 1.9
+            let smoothstep: (Double) -> Double = { $0 * $0 * (3 - 2 * $0) }
             flyInTimer?.invalidate()
             flyInTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
                 MainActor.assumeIsolated {
@@ -443,9 +444,13 @@ struct RoomPreviewARContainer: UIViewRepresentable {
                         return
                     }
                     let t = min(max(Date().timeIntervalSince(start) - holdDelay, 0) / duration, 1)
-                    let eased = Float(t * t * (3 - 2 * t))   // smoothstep
-                    let eye = simd_mix(overviewEye, finalEye, SIMD3<Float>(repeating: eased))
-                    let target = simd_mix(overviewTarget, finalTarget, SIMD3<Float>(repeating: eased))
+                    // 水平移動を先に終わらせ、天井のない上方から部屋の内側へ降りる
+                    // (壁を横から突き抜けて画面が壁一色になる瞬間を作らない)
+                    let horizontal = Float(smoothstep(min(t * 1.6, 1)))
+                    let vertical = Float(smoothstep(t))
+                    var eye = simd_mix(overviewEye, finalEye, SIMD3<Float>(repeating: horizontal))
+                    eye.y = overviewEye.y + (finalEye.y - overviewEye.y) * vertical
+                    let target = simd_mix(overviewTarget, finalTarget, SIMD3<Float>(repeating: vertical))
                     camera.look(at: target, from: eye, relativeTo: nil)
                     if t >= 1 {
                         timer.invalidate()
